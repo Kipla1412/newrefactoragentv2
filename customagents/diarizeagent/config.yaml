@@ -1,0 +1,5 @@
+name: diarize
+model: clinical_model
+prompt: diarize
+tools:
+  - memory

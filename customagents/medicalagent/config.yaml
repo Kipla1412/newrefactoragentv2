@@ -1,0 +1,7 @@
+name: medical
+model: clinical_model
+prompt: medical
+tools:
+  - memory
+  - wiki_search
+  - neo4j_query

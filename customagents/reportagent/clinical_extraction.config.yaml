@@ -1,0 +1,5 @@
+name: clinical_extraction
+model: clinical_model
+prompt: clinical_extraction
+tools:
+  - memory

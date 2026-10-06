@@ -1,0 +1,5 @@
+name: pdf_chat
+model: clinical_model
+prompt: pdf_chat
+tools:
+  - memory

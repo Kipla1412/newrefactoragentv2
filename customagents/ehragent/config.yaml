@@ -1,0 +1,5 @@
+name: ehr
+model: clinical_model
+prompt: ehr
+# No tools key: the FHIR MCP tools are registered dynamically at runtime,
+# so this agent's tool set is left unrestricted.

@@ -1,0 +1,5 @@
+name: document_retrieval
+model: clinical_model
+prompt: document_retrieval
+# No tools key: DocumentRetrievalAgent sets its own allowed_tool_names
+# (jina_embedding, medical_document_search) in its constructor.

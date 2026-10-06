@@ -29,6 +29,9 @@ class Agent:
         self.force_tool_choice = False
         # Restrict which tools the agent may see. None means all tools.
         self.allowed_tool_names: list[str] | None = None
+        # Tools resolved from configuration by the AgentFactory. None means
+        # no per-agent tool configuration was applied.
+        self.configured_tools: list | None = None
         
         if confirmation_callback is not None:
             self.session.approval_manager.confirmation_callback = confirmation_callback
@@ -112,8 +115,14 @@ class Agent:
             tool_calls: list[ToolCall] = []
             usage: TokenUsage | None = None
 
+            messages = self.session.context_manager.get_messages()
+            # Agent → ModelRouter → ModelRegistry → LLMClient → LiteLLM.
+            # Returns None when routing is disabled (configured default model).
+            model = self.session.route_model(messages)
+
             async for event in self.session.client.chat_completion(
-                self.session.context_manager.get_messages(),
+                messages,
+                model=model,
                 tools=tool_schemas if tool_schemas else None,
                 tool_choice=(
                     "required"

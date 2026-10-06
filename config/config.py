@@ -11,6 +11,8 @@ from speechtospeech.audioprocessor import AudioProcessor
 from speechtospeech.speechtotext.sttengine import TranscriptionEngine
 from speechtospeech.texttospeech.ttsengine import TTSEngine
 from dotenv import load_dotenv
+from utils.errors import ConfigError
+from config.schemas import ApplicationAgentConfig
 load_dotenv()
 
 
@@ -31,9 +33,56 @@ def _opensearch_url_password(url: str) -> str | None:
     return urlparse(url).password
 
 class ModelConfig(BaseModel):
+    """Runtime model configuration.
+
+    Used both as the default runtime model and as a named entry resolved
+    by the ModelRegistry from configuration.
+
+    Attributes:
+        provider: Provider identifier (e.g. "openai", "anthropic",
+            "gemini", "ollama"). Used to build the LiteLLM model string
+            when ``litellm_model`` is not set.
+        name: Model identifier passed to the LLM client.
+        temperature: Sampling temperature (0.0-2.0).
+        context_window: Maximum context window in tokens.
+        litellm_model: Explicit LiteLLM model string (e.g.
+            "openai/gpt-4.1", "anthropic/claude-3-5-sonnet"). When set it
+            takes precedence over provider/name.
+    """
+
+    provider: str = "openai"
     name: str = "gpt-4.1" #"gpt-4o-mini" #"mistralai/devstral-2512:free"
     temperature: float = Field(default=1, ge=0.0, le=2.0)
     context_window: int = 256_000
+    litellm_model: str | None = None
+
+    def to_litellm_model(self) -> str:
+        """Return the LiteLLM model string for this entry.
+
+        Falls back to ``"<provider>/<name>"`` when no explicit
+        ``litellm_model`` is configured.
+
+        Returns:
+            The LiteLLM model identifier.
+        """
+        return self.litellm_model or f"{self.provider}/{self.name}"
+
+
+class ModelsSection(BaseModel):
+    """Container for named model definitions loaded from configuration."""
+
+    definitions: dict[str, ModelConfig] = Field(default_factory=dict)
+
+
+class AgentsSection(BaseModel):
+    """Container for application-level agent entries (enabled flags).
+
+    The per-agent model/prompt/tools configuration lives in each
+    customagents/<agent>/config.yaml, parsed by the AgentConfigLoader
+    into AgentYaml. This section only tracks which agents are enabled.
+    """
+
+    definitions: dict[str, "ApplicationAgentConfig"] = Field(default_factory=dict)
 
 class ShellEnvironmentPolicy(BaseModel):
     ignore_default_excludes: bool = False
@@ -143,7 +192,61 @@ class Config(BaseModel):
 
     knowledge: KnowledgeConfig = Field(default_factory=KnowledgeConfig)
 
+    models: ModelsSection = Field(default_factory=ModelsSection)
+    agents: AgentsSection = Field(default_factory=AgentsSection)
+
     debug: bool = False
+
+    def resolve_agent_config(self, name: str) -> ApplicationAgentConfig | None:
+        """Return the application-level entry for an agent name, if any.
+
+        Args:
+            name: Agent identifier (matches the AgentType string).
+
+        Returns:
+            The resolved ApplicationAgentConfig (enabled flag), or None if
+            the agent has no application-level entry. Per-agent model,
+            prompt, and tools are resolved by the AgentConfigLoader.
+        """
+        return self.agents.definitions.get(name.lower())
+
+    def resolve_model_definition(self, name: str) -> ModelConfig:
+        """Return the ModelConfig for a logical model name.
+
+        Args:
+            name: Logical model identifier configured for an agent.
+
+        Returns:
+            The resolved ModelConfig.
+
+        Raises:
+            ConfigError: If the model is not registered.
+        """
+        definition = self.models.definitions.get(name)
+        if definition is None:
+            raise ConfigError(f"Model '{name}' is not registered")
+        return definition
+
+    def resolve_prompt_definition(self, agent: str, prompt: str) -> str:
+        """Validate that a referenced prompt is registered for an agent.
+
+        Args:
+            agent: Agent identifier used in error messages.
+            prompt: Logical prompt name configured for the agent.
+
+        Returns:
+            The prompt name, if registered.
+
+        Raises:
+            ConfigError: If the prompt is not registered.
+        """
+        from registries.prompt_registry import PromptRegistry
+        registry = PromptRegistry.from_builtin()
+        if not registry.has(prompt):
+            raise ConfigError(
+                f"Agent '{agent}' references unknown prompt '{prompt}'"
+            )
+        return prompt
 
     @property
     def api_key(self) -> str | None:
@@ -152,6 +255,40 @@ class Config(BaseModel):
     @property
     def base_url(self) -> str | None:
         return os.environ.get("BASE_URL")
+
+    @property
+    def llm_routing_enabled(self) -> bool:
+        """Whether the ModelRouter selects the model per request.
+
+        Disabled by default so existing behaviour (single configured
+        model) is preserved unless explicitly enabled.
+        """
+        return os.environ.get("LLM_ROUTING_ENABLED", "false").lower() == "true"
+
+    @property
+    def litellm_fallback_models(self) -> list[str]:
+        """Ordered fallback models tried when the primary model fails.
+
+        Read from ``LLM_FALLBACK_MODELS`` as a comma-separated list of
+        logical or LiteLLM model names.
+        """
+        raw = os.environ.get("LLM_FALLBACK_MODELS", "")
+        return [m.strip() for m in raw.split(",") if m.strip()]
+
+    @property
+    def litellm_timeout(self) -> float:
+        """Per-request LiteLLM timeout in seconds."""
+        return float(os.environ.get("LLM_TIMEOUT", "60"))
+
+    @property
+    def litellm_num_retries(self) -> int:
+        """Number of retries for a single model before falling back."""
+        return int(os.environ.get("LLM_NUM_RETRIES", "3"))
+
+    @property
+    def default_litellm_model(self) -> str:
+        """LiteLLM model string for the runtime default model."""
+        return self.model.to_litellm_model()
 
     @property
     def vision_model_name(self) -> str | None:

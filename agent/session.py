@@ -3,12 +3,14 @@ import json
 import uuid
 from contextlib import asynccontextmanager
 from client.llm_client import LLMClient
+from client.model_router import ModelRouter
 from config.config import Config
 from config.loader import get_data_dir
 from context.compaction import ChatCompactor
 from context.loop_detector import LoopDetector
 from context.manager import ContextManager
 from hooks.hook_system import HookSystem
+from registries.model_registry import ModelRegistry
 from safety.approval import ApprovalManager
 from tools.mcp.mcp_manager import MCPManager
 from tools.discovery import ToolDiscoveryManager
@@ -23,7 +25,16 @@ class Session:
     def __init__(self, config: Config):
 
         self.config = config
-        self.client = LLMClient(config=config)
+        # Model selection layer: registry resolves logical names to LiteLLM
+        # model strings; router picks a logical model per request. Both are
+        # consumed by the LLMClient — agents never touch LiteLLM directly.
+        self.model_registry = ModelRegistry(config.models.definitions)
+        self.model_router = ModelRouter()
+        self.client = LLMClient(
+            config=config,
+            model_registry=self.model_registry,
+            model_router=self.model_router,
+        )
         self.tool_registry = create_default_registry(config=config)
         self.context_manager: ContextManager | None = None
         self.discovery_manager = ToolDiscoveryManager(
@@ -140,8 +151,31 @@ class Session:
         if self.mlflow_tracker:
             self.mlflow_tracker.current_session_id = self.session_id
 
-    def set_tools(self, tools: list):
-        self.tool_registry.set_tools(tools)
+    def set_tools(self, tools: list) -> None:
+        """Restrict the tools available in this session.
+
+        Accepts Tool instances or plain tool names and applies them through
+        the existing ToolRegistry's ``allowed_tools`` filter, so the tool
+        registry itself is untouched.
+
+        Args:
+            tools: Tool instances or tool names to allow.
+        """
+        self.config.allowed_tools = [getattr(tool, "name", tool) for tool in tools]
+
+    def route_model(self, messages: list[dict[str, Any]] | None) -> str | None:
+        """Return the logical model to use for a request, if routing is on.
+
+        Args:
+            messages: Chat messages used by the router to classify the
+                request.
+
+        Returns:
+            A logical model name, or None to use the configured default.
+        """
+        if not self.config.llm_routing_enabled:
+            return None
+        return self.model_router.route(messages=messages)
 
     def _load_memory(self) -> str | None:
         data_dir = get_data_dir()

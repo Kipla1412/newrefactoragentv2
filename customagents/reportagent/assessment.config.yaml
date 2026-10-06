@@ -1,0 +1,5 @@
+name: assessment
+model: clinical_model
+prompt: assessment
+tools:
+  - memory

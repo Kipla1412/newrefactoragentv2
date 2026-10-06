@@ -1,0 +1,5 @@
+name: doc
+model: clinical_model
+prompt: doc
+tools:
+  - memory

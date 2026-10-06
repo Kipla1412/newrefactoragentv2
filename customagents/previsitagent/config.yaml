@@ -1,0 +1,5 @@
+name: intake
+model: clinical_model
+prompt: intake
+tools:
+  - memory

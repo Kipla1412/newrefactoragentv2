@@ -1,0 +1,5 @@
+name: soap
+model: clinical_model
+prompt: soap
+tools:
+  - memory

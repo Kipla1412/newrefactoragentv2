@@ -1,0 +1,5 @@
+name: consult
+model: clinical_model
+prompt: consult
+tools:
+  - memory

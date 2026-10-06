@@ -1,0 +1,57 @@
+# Application-level agent configuration.
+#
+# Configuration selects; registries resolve; the factory composes.
+#
+# The `models` section defines logical model entries resolved by the
+# ModelRegistry. The `agents` section only lists which agents are
+# enabled — each agent's model/prompt/tools references live in that
+# agent's own customagents/<agent>/config.yaml.
+
+models:
+
+  clinical_model:
+    provider: openai
+    name: gpt-4.1
+    temperature: 0.1
+
+  fast_model:
+    provider: openai
+    name: gpt-4.1-mini
+    temperature: 0.2
+
+  # Logical models used by the ModelRouter (simple/adaptive traffic).
+  # `litellm_model` is the LiteLLM model string; when omitted it is built
+  # from "<provider>/<name>".
+  fast:
+    provider: openai
+    name: gpt-4o-mini
+    litellm_model: openai/gpt-4o-mini
+    temperature: 0.3
+
+  coding:
+    provider: openai
+    name: gpt-4.1
+    litellm_model: openai/gpt-4.1
+    temperature: 0.1
+
+  reasoning:
+    provider: anthropic
+    name: claude-3-5-sonnet-20241022
+    litellm_model: anthropic/claude-3-5-sonnet-20241022
+    temperature: 0.2
+
+agents:
+
+  doc:                 { enabled: true }
+  soap:                { enabled: true }
+  assessment:          { enabled: true }
+  clinical_extraction: { enabled: true }
+  consult:             { enabled: true }
+  intake:              { enabled: true }
+  ehr:                 { enabled: true }
+  medical:             { enabled: true }
+  diarize:             { enabled: true }
+  voice_intake:        { enabled: true }
+  voice_consult:       { enabled: true }
+  document_retrieval:  { enabled: true }
+  pdf_chat:            { enabled: true }

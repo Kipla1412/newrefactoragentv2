@@ -3,6 +3,7 @@ from typing import Any
 
 from platformdirs import user_config_dir, user_data_dir
 import tomli
+import yaml
 from dotenv import load_dotenv
 
 from config.config import Config
@@ -11,6 +12,7 @@ import logging
 
 logger = logging.getLogger(__name__)
 CONFIG_FILE_NAME = "config.toml"
+AGENTS_YAML_FILE_NAME = "agents.yaml"
 
 AGENT_MD_FILE = "AGENT.MD"
 
@@ -27,6 +29,20 @@ def get_system_config_path() -> Path:
     return get_config_dir() / CONFIG_FILE_NAME
 
 
+def get_agents_yaml_path(cwd: Path | None = None) -> Path:
+    """Return the path to the agents.yaml configuration file.
+
+    Args:
+        cwd: Project root to resolve ``config/agents.yaml`` from. Defaults
+            to the project root derived from this module's location.
+
+    Returns:
+        The absolute path to ``config/agents.yaml``.
+    """
+    project_root = cwd or Path(__file__).resolve().parent.parent
+    return project_root / "config" / AGENTS_YAML_FILE_NAME
+
+
 def _parse_toml(path: Path):
     try:
         with open(path, "rb") as f:
@@ -36,6 +52,32 @@ def _parse_toml(path: Path):
     except (OSError, IOError) as e:
         raise ConfigError(
             "Failed to read config file {path}: {e}", config_file=str(path)
+        ) from e
+
+
+def _parse_yaml(path: Path) -> dict[str, Any]:
+    """Parse a YAML configuration file into a dict.
+
+    Args:
+        path: Path to the YAML file.
+
+    Returns:
+        The parsed YAML content as a mapping.
+
+    Raises:
+        ConfigError: If the file cannot be read or parsed.
+    """
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            content = yaml.safe_load(f)
+        return content if isinstance(content, dict) else {}
+    except yaml.YAMLError as e:
+        raise ConfigError(
+            f"Invalid YAML in {path}: {e}", config_file=str(path)
+        ) from e
+    except (OSError, IOError) as e:
+        raise ConfigError(
+            f"Failed to read config file {path}: {e}", config_file=str(path)
         ) from e
 
 
@@ -105,6 +147,20 @@ def load_config(cwd: Path | None) -> Config:
         agent_md_content = _get_agent_md_files(cwd)
         if agent_md_content:
             config_dict["developer_instructions"] = agent_md_content
+
+    # Load the YAML agent configuration (models/agents) once.
+    agents_yaml_path = get_agents_yaml_path(cwd=cwd)
+    if agents_yaml_path.is_file():
+        try:
+            agents_config = _parse_yaml(agents_yaml_path)
+            models_section = {"definitions": agents_config.get("models", {})}
+            agents_section = {"definitions": agents_config.get("agents", {})}
+            config_dict = _merge_dicts(config_dict, {
+                "models": models_section,
+                "agents": agents_section,
+            })
+        except ConfigError as e:
+            logger.warning("Skipping invalid agents YAML: %s", e)
 
     try:
         config = Config(**config_dict)

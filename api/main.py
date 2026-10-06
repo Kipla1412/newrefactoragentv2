@@ -33,7 +33,11 @@ async def lifespan(app: FastAPI):
 
     logger.info("Starting Alees AI Agent Runtime")
 
-    config = Config()
+    # Load configuration (TOML + agents.yaml) once at startup.
+    from pathlib import Path
+    from config.loader import load_config
+
+    config = load_config(cwd=Path.cwd())
     session_manager = SessionManager()
 
     app.state.config = config

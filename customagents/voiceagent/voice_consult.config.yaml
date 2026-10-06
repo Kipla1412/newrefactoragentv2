@@ -1,0 +1,5 @@
+name: voice_consult
+model: clinical_model
+prompt: voice_consult
+tools:
+  - memory
