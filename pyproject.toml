@@ -12,7 +12,7 @@ dependencies = [
     "PyYAML",
     "platformdirs",
     "openai",
-    "litellm>=1.40.0",
+    "litellm[proxy]>=1.40.0",
     "ddgs",
     "tiktoken",
     "fastapi",

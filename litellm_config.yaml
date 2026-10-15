@@ -1,0 +1,5 @@
+model_list:
+  - model_name: fast-llm
+    litellm_params:
+      model: gemini/gemini-3.6-flash
+      api_key: os.environ/AQ.Ab8RN6IpFbG4hkTVpoWpS-dmSoh74q7ik00EcNxHh1x9P1N4Cw

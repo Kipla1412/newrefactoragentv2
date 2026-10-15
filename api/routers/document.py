@@ -13,9 +13,6 @@ from customagents.factory import AgentFactory
 router = APIRouter(prefix="/agent")
 
 
-# ============================================================
-# Request Models
-# ============================================================
 
 class DocumentRequest(BaseModel):
     message: str = Field(
@@ -50,9 +47,6 @@ class DocumentRequest(BaseModel):
     }
 
 
-# ============================================================
-# Response Models
-# ============================================================
 
 class DocumentResponse(BaseModel):
     type: str
@@ -85,9 +79,7 @@ class ErrorResponse(BaseModel):
     }
 
 
-# ============================================================
 # Document Retrieval API
-# ============================================================
 
 @router.post(
     "/document",
@@ -141,24 +133,22 @@ async def document_api(
             content={"error": "Message is empty"},
         )
 
-    # ========================================================
     # 2. Get authenticated user
-    # ========================================================
+
     user_id = request.state.user["sub"]
 
-    # ========================================================
+
     # 3. Get application config
-    # ========================================================
+ 
     config = request.app.state.config
 
-    # ========================================================
     # 4. Get shared session
-    # ========================================================
+
     session = await request.app.state.session_manager.get_session(user_id, config)
 
-    # ========================================================
+
     # 5. Store document scope in session
-    # ========================================================
+
     session.metadata["patient_id"] = data.patient_id
 
     if data.file_id:
@@ -166,18 +156,17 @@ async def document_api(
     else:
         session.metadata.pop("file_id", None)
 
-    # ========================================================
+   
     # 6. Create Document Retrieval Agent
-    # ========================================================
+
     agent = AgentFactory.create(
         AgentType.DOCUMENT_RETRIEVAL,
         config,
         session,
     )
 
-    # ========================================================
     # 7. Stream agent events
-    # ========================================================
+
     async def event_stream():
         try:
             async for event in agent.run(data.message):
@@ -192,9 +181,8 @@ async def document_api(
                 "agent": "document_retrieval",
             }) + "\n"
 
-    # ========================================================
     # 8. Return NDJSON stream
-    # ========================================================
+
     return StreamingResponse(
         event_stream(),
         media_type="application/x-ndjson",

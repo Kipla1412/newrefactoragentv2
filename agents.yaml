@@ -19,7 +19,7 @@ models:
     name: gpt-4.1-mini
     temperature: 0.2
 
-  # Logical models used by the ModelRouter (simple/adaptive traffic).
+  # Logical models used by the ModelRouter (clinical traffic).
   # `litellm_model` is the LiteLLM model string; when omitted it is built
   # from "<provider>/<name>".
   fast:
@@ -28,17 +28,37 @@ models:
     litellm_model: openai/gpt-4o-mini
     temperature: 0.3
 
-  coding:
-    provider: openai
-    name: gpt-4.1
-    litellm_model: openai/gpt-4.1
-    temperature: 0.1
-
   reasoning:
     provider: anthropic
     name: claude-3-5-sonnet-20241022
     litellm_model: anthropic/claude-3-5-sonnet-20241022
     temperature: 0.2
+
+  # Fallback models — tried in the order given by LLM_FALLBACK_MODELS when
+  # the primary model fails. Gemini uses GEMINI_API_KEY; Ollama uses
+  # OLLAMA_API_BASE / OLLAMA_BASE_URL.
+  gemini:
+    provider: gemini
+    name: gemini-2.0-flash
+    litellm_model: gemini/gemini-2.0-flash
+    temperature: 0.2
+
+  ollama:
+    provider: ollama
+    name: llama3.2
+    litellm_model: ollama/llama3.2
+    temperature: 0.3
+
+  # Vision-capable model used for PDF OCR (config.vision_model_name).
+  # gpt-4o-mini is multimodal and cheap, and authenticates with the
+  # framework API_KEY / BASE_URL. Point VISION_MODEL_NAME at this logical
+  # name (or at any other registered vision model).
+  # Local alternative: provider ollama / litellm_model ollama/medgemma-multi:latest
+  vision:
+    provider: openai
+    name: gpt-4o-mini
+    litellm_model: openai/gpt-4o-mini
+    temperature: 0.0
 
 agents:
 

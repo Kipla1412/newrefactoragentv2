@@ -76,7 +76,8 @@ class AgentConfigLoader:
     ) -> None:
         self.config = config
         self.base_dir = (base_dir or Path(__file__).resolve().parent.parent)
-        self._config_dir = self.base_dir / "config"
+        # The application-level agents.yaml lives at the project root.
+        self._config_dir = self.base_dir
         self._customagents_dir = self.base_dir / "customagents"
         self._known_agents = known_agents or set()
         self.resolved: ResolvedAgentConfig | None = None

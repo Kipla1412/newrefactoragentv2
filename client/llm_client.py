@@ -39,15 +39,7 @@ from client.response import (
     parse_tool_call_arguments,
 )
 from config.config import Config
-
-# Providers whose credentials come from the framework's API_KEY / BASE_URL
-# environment variables (OpenAI-compatible endpoints). Other providers use
-# their own LiteLLM environment variables (ANTHROPIC_API_KEY, GEMINI_API_KEY,
-# ...), so we must not forward the OpenAI key to them.
-_OPENAI_COMPATIBLE_PROVIDERS = {
-    "openai", "openrouter", "ollama", "azure", "deepseek",
-    "groq", "together_ai", "xai", "fireworks_ai", "mistral",
-}
+from client.providers import ProviderCredentialResolver, default_resolver
 
 # Errors that are worth retrying against the same model.
 _RETRYABLE_ERRORS = (
@@ -77,6 +69,7 @@ class LLMClient:
             model names to LiteLLM model strings.
         model_router: Optional ModelRouter used to pick a logical model
             when the caller does not specify one.
+        credentials: Resolver that supplies provider credential kwargs.
     """
 
     def __init__(
@@ -84,6 +77,7 @@ class LLMClient:
         config: Config,
         model_registry: Any | None = None,
         model_router: Any | None = None,
+        credentials: ProviderCredentialResolver | None = None,
     ) -> None:
         """Initialize the client.
 
@@ -92,10 +86,13 @@ class LLMClient:
             model_registry: Optional ModelRegistry for logical→LiteLLM
                 model resolution.
             model_router: Optional ModelRouter for automatic model choice.
+            credentials: Optional provider credential resolver. Defaults to
+                the framework's built-in provider registry.
         """
         self.config = config
         self.model_registry = model_registry
         self.model_router = model_router
+        self.credentials = credentials or default_resolver()
 
     async def close(self) -> None:
         """Release client resources.
@@ -158,9 +155,9 @@ class LLMClient:
     def _provider_kwargs(self, model: str) -> dict[str, Any]:
         """Return provider credentials for a LiteLLM model string.
 
-        OpenAI-compatible providers receive the framework's API_KEY /
-        BASE_URL; all other providers fall back to their own LiteLLM
-        environment variables (ANTHROPIC_API_KEY, GEMINI_API_KEY, ...).
+        Delegates to the injected credential resolver so the client holds
+        no provider-specific knowledge (SRP) and new providers are added
+        by registering a strategy (OCP).
 
         Args:
             model: The LiteLLM model string.
@@ -168,16 +165,7 @@ class LLMClient:
         Returns:
             Keyword arguments merged into the LiteLLM call.
         """
-        provider = model.split("/", 1)[0].lower() if "/" in model else model.lower()
-        kwargs: dict[str, Any] = {}
-
-        if provider in _OPENAI_COMPATIBLE_PROVIDERS:
-            if self.config.api_key:
-                kwargs["api_key"] = self.config.api_key
-            if self.config.base_url:
-                kwargs["api_base"] = self.config.base_url
-
-        return kwargs
+        return self.credentials.resolve(model, self.config)
 
     # ------------------------------------------------------------------
     # Tool schema conversion
@@ -242,7 +230,14 @@ class LLMClient:
             StreamEvent objects (TEXT_DELTA, TOOL_CALL_*, MESSAGE_COMPLETE
             or ERROR).
         """
-        if model is None and self.model_router is not None:
+        # Adaptive routing is opt-in. When disabled (the default) an
+        # unspecified model means "the caller's configured model", so an
+        # agent's config.yaml model is never silently overridden.
+        if (
+            model is None
+            and self.model_router is not None
+            and self.config.llm_routing_enabled
+        ):
             model = self.model_router.route(messages=messages)
 
         candidates = self._candidate_models(model)

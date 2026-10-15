@@ -97,6 +97,16 @@ def test_model_registry_apply_does_not_mutate_original():
     assert config.model_name == original_name
 
 
+def test_vision_model_is_configured_and_resolves():
+    """PDF OCR needs a vision-capable model (config.vision_model_name)."""
+    config = load_config(cwd=PROJECT_ROOT)
+
+    assert "vision" in config.models.definitions
+    assert ModelRegistry(config.models.definitions).resolve_litellm(
+        "vision"
+    ) == "openai/gpt-4o-mini"
+
+
 # ---------------------------------------------------------------------------
 # PromptRegistry
 # ---------------------------------------------------------------------------
@@ -123,9 +133,8 @@ def test_prompt_registry_unknown_prompt_raises():
 # ---------------------------------------------------------------------------
 
 def _write_project(tmp_path: Path, agents_yaml: dict, agent_configs: dict):
-    (tmp_path / "config").mkdir(parents=True)
     (tmp_path / "customagents").mkdir(parents=True)
-    (tmp_path / "config" / "agents.yaml").write_text(yaml.safe_dump(agents_yaml))
+    (tmp_path / "agents.yaml").write_text(yaml.safe_dump(agents_yaml))
     for name, data in agent_configs.items():
         d = tmp_path / "customagents" / name
         d.mkdir(parents=True, exist_ok=True)

@@ -64,12 +64,24 @@ def _models_config() -> ModelsSection:
     return ModelsSection(definitions={
         "fast": ModelConfig(provider="openai", name="gpt-4o-mini",
                             litellm_model="openai/gpt-4o-mini", temperature=0.3),
-        "coding": ModelConfig(provider="openai", name="gpt-4.1",
-                              litellm_model="openai/gpt-4.1", temperature=0.1),
+        "clinical": ModelConfig(provider="openai", name="gpt-4.1",
+                                litellm_model="openai/gpt-4.1", temperature=0.1),
         "reasoning": ModelConfig(provider="anthropic",
                                  name="claude-3-5-sonnet-20241022",
                                  litellm_model="anthropic/claude-3-5-sonnet-20241022"),
+        "gemini": ModelConfig(provider="gemini", name="gemini-2.0-flash",
+                              litellm_model="gemini/gemini-2.0-flash"),
+        "ollama": ModelConfig(provider="ollama", name="llama3.2",
+                              litellm_model="ollama/llama3.2"),
     })
+
+
+class _StubConfig:
+    """Minimal stand-in for Config used by the credential strategy tests."""
+
+    def __init__(self, api_key=None, base_url=None):
+        self.api_key = api_key
+        self.base_url = base_url
 
 
 # ---------------------------------------------------------------------------
@@ -79,15 +91,15 @@ def _models_config() -> ModelsSection:
 
 def test_router_default_routes():
     router = ModelRouter()
-    assert router.routes == {"simple": "fast", "coding": "coding", "complex": "reasoning"}
+    assert router.routes == {"simple": "fast", "clinical": "reasoning", "retrieval": "fast"}
 
 
 @pytest.mark.parametrize(
     "text, expected",
     [
         ("hello there", TaskType.SIMPLE),
-        ("Please fix this python bug in my function", TaskType.CODING),
-        ("Analyze the trade-offs and design an architecture", TaskType.COMPLEX),
+        ("Assess the patient and provide a differential diagnosis", TaskType.CLINICAL),
+        ("look up the patient record for elizabeth", TaskType.RETRIEVAL),
     ],
 )
 def test_router_classifies_text(text, expected):
@@ -98,17 +110,17 @@ def test_router_routes_messages_to_logical_model():
     router = ModelRouter()
     assert router.route(messages=[{"role": "user", "content": "hi"}]) == "fast"
     assert router.route(
-        messages=[{"role": "user", "content": "debug this sql query"}]
-    ) == "coding"
-    assert router.route(
-        messages=[{"role": "user", "content": "analyze the architecture"}]
+        messages=[{"role": "user", "content": "assess the patient's risk"}]
     ) == "reasoning"
+    assert router.route(
+        messages=[{"role": "user", "content": "look up the patient record"}]
+    ) == "fast"
 
 
 def test_router_explicit_task_type_overrides_classification():
     router = ModelRouter()
-    assert router.route(task_type="complex") == "reasoning"
-    assert router.route(task_type=TaskType.CODING) == "coding"
+    assert router.route(task_type="clinical") == "reasoning"
+    assert router.route(task_type=TaskType.RETRIEVAL) == "fast"
 
 
 def test_router_does_not_import_litellm():
@@ -116,6 +128,129 @@ def test_router_does_not_import_litellm():
 
     source = inspect.getsource(ModelRouter)
     assert "litellm" not in source.lower()
+
+
+# ---------------------------------------------------------------------------
+# Provider credentials (strategy / OCP / DIP)
+# ---------------------------------------------------------------------------
+
+
+def test_openai_gateway_forwards_api_key_and_base_url():
+    from client.providers import OpenAIGatewayCredentials
+
+    cfg = _StubConfig(api_key="k", base_url="https://openrouter.ai/api/v1")
+    kwargs = OpenAIGatewayCredentials().call_kwargs("openrouter/gpt-4o", cfg)
+
+    assert kwargs == {"api_key": "k", "api_base": "https://openrouter.ai/api/v1"}
+
+
+def test_gemini_forwards_nothing_and_uses_its_env(monkeypatch):
+    """Gemini authenticates via GEMINI_API_KEY, not the framework API_KEY."""
+    from client.providers import default_resolver
+
+    monkeypatch.setenv("GEMINI_API_KEY", "g-key")
+    cfg = _StubConfig(api_key="openai-key", base_url="https://api.openai.com/v1")
+
+    assert default_resolver().resolve("gemini/gemini-2.0-flash", cfg) == {}
+
+
+def test_ollama_never_receives_the_openai_key_or_base_url(monkeypatch):
+    from client.providers import default_resolver
+
+    monkeypatch.delenv("OLLAMA_API_BASE", raising=False)
+    monkeypatch.delenv("OLLAMA_BASE_URL", raising=False)
+    cfg = _StubConfig(api_key="openai-key", base_url="https://api.openai.com/v1")
+
+    # No api_key, and crucially no OpenAI api_base.
+    assert default_resolver().resolve("ollama/llama3.2", cfg) == {}
+
+
+def test_ollama_uses_its_own_base_url_env(monkeypatch):
+    from client.providers import default_resolver
+
+    monkeypatch.setenv("OLLAMA_API_BASE", "http://localhost:11434")
+    cfg = _StubConfig(api_key="openai-key", base_url="https://api.openai.com/v1")
+
+    assert default_resolver().resolve("ollama/llama3.2", cfg) == {
+        "api_base": "http://localhost:11434"
+    }
+
+
+def test_ollama_accepts_the_alternate_base_url_env(monkeypatch):
+    """OLLAMA_BASE_URL works too (whitespace trimmed)."""
+    from client.providers import default_resolver
+
+    monkeypatch.delenv("OLLAMA_API_BASE", raising=False)
+    monkeypatch.setenv("OLLAMA_BASE_URL", "  http://localhost:11434  ")
+    cfg = _StubConfig(api_key="openai-key", base_url="https://api.openai.com/v1")
+
+    assert default_resolver().resolve("ollama/medgemma-multi:latest", cfg) == {
+        "api_base": "http://localhost:11434"
+    }
+
+
+def test_ollama_api_base_takes_priority(monkeypatch):
+    from client.providers import default_resolver
+
+    monkeypatch.setenv("OLLAMA_API_BASE", "http://api-base:11434")
+    monkeypatch.setenv("OLLAMA_BASE_URL", "http://base-url:11434")
+    cfg = _StubConfig()
+
+    assert default_resolver().resolve("ollama/llama3.2", cfg) == {
+        "api_base": "http://api-base:11434"
+    }
+
+
+def test_unknown_provider_falls_back_to_env_credentials():
+    from client.providers import default_resolver
+
+    cfg = _StubConfig(api_key="openai-key", base_url="https://api.openai.com/v1")
+    assert default_resolver().resolve("anthropic/claude-3-5-sonnet", cfg) == {}
+
+
+def test_resolver_is_open_for_extension():
+    """A new provider is supported by registering a strategy (OCP)."""
+    from client.providers import ProviderCredentialResolver
+
+    class _Custom:
+        def call_kwargs(self, model, config):
+            return {"api_key": "custom-key"}
+
+    resolver = ProviderCredentialResolver()
+    resolver.register("myprovider", _Custom())
+
+    cfg = _StubConfig(api_key="openai-key", base_url="https://api.openai.com/v1")
+    assert resolver.resolve("myprovider/model-x", cfg) == {"api_key": "custom-key"}
+    # Other providers keep the default behaviour.
+    assert resolver.resolve("gemini/gemini-2.0-flash", cfg) == {}
+
+
+def test_resolver_provider_of_handles_bare_model_strings():
+    from client.providers import ProviderCredentialResolver
+
+    assert ProviderCredentialResolver.provider_of("openai/gpt-4.1") == "openai"
+    assert ProviderCredentialResolver.provider_of("gpt-4.1") == "gpt-4.1"
+
+
+def test_llm_client_uses_the_injected_credentials_resolver():
+    """The client depends on the abstraction, not a concrete provider map."""
+    from client.providers import ProviderCredentialResolver
+
+    class _Recording:
+        def __init__(self):
+            self.seen = []
+
+        def call_kwargs(self, model, config):
+            self.seen.append(model)
+            return {}
+
+    recording = _Recording()
+    client = LLMClient(Config(), credentials=ProviderCredentialResolver(
+        {"openai": recording}
+    ))
+
+    client._provider_kwargs("openai/gpt-4.1")
+    assert recording.seen == ["openai/gpt-4.1"]
 
 
 # ---------------------------------------------------------------------------
@@ -230,13 +365,50 @@ def test_fallback_to_next_model_on_failure(monkeypatch):
     monkeypatch.setattr(llm_module.litellm, "acompletion", fake_acompletion)
 
     client = LLMClient(Config(), model_registry=ModelRegistry(_models_config().definitions))
-    events = _collect(client, [{"role": "user", "content": "hi"}], model="coding")
+    events = _collect(client, [{"role": "user", "content": "hi"}], model="clinical")
 
     assert attempted == ["openai/gpt-4.1", "openai/gpt-4o-mini"]
     assert any(
         e.type == StreamEventType.TEXT_DELTA and e.text_delta.content == "fallback ok"
         for e in events
     )
+
+
+def test_fallback_chain_reaches_gemini_then_ollama(monkeypatch):
+    """primary (anthropic) fails → gemini fails → ollama succeeds."""
+    from litellm.exceptions import RateLimitError
+
+    monkeypatch.setenv("LLM_FALLBACK_MODELS", "gemini,ollama")
+    monkeypatch.setenv("LLM_NUM_RETRIES", "0")
+    monkeypatch.setenv("OLLAMA_API_BASE", "http://localhost:11434")
+
+    attempted = []
+    sent_kwargs = {}
+
+    async def fake_acompletion(**kwargs):
+        attempted.append(kwargs["model"])
+        sent_kwargs[kwargs["model"]] = kwargs
+        if kwargs["model"] != "ollama/llama3.2":
+            raise RateLimitError("rate limited", llm_provider="x", model="x")
+        return _FakeStream([_chunk(content="ollama ok", finish_reason="stop")])
+
+    monkeypatch.setattr(llm_module.litellm, "acompletion", fake_acompletion)
+
+    client = LLMClient(Config(), model_registry=ModelRegistry(_models_config().definitions))
+    events = _collect(client, [{"role": "user", "content": "hi"}], model="reasoning")
+
+    assert attempted == [
+        "anthropic/claude-3-5-sonnet-20241022",
+        "gemini/gemini-2.0-flash",
+        "ollama/llama3.2",
+    ]
+    assert any(
+        e.type == StreamEventType.TEXT_DELTA and e.text_delta.content == "ollama ok"
+        for e in events
+    )
+    # Ollama is reached through its own base URL, never the OpenAI key/base.
+    assert sent_kwargs["ollama/llama3.2"].get("api_base") == "http://localhost:11434"
+    assert "api_key" not in sent_kwargs["ollama/llama3.2"]
 
 
 def test_all_models_failing_emits_error_event(monkeypatch):
@@ -251,7 +423,7 @@ def test_all_models_failing_emits_error_event(monkeypatch):
     monkeypatch.setattr(llm_module.litellm, "acompletion", fake_acompletion)
 
     client = LLMClient(Config(), model_registry=ModelRegistry(_models_config().definitions))
-    events = _collect(client, [{"role": "user", "content": "hi"}], model="coding")
+    events = _collect(client, [{"role": "user", "content": "hi"}], model="clinical")
 
     assert events[-1].type == StreamEventType.ERROR
     assert "All models failed" in events[-1].error
@@ -275,7 +447,7 @@ def test_retryable_error_retries_same_model(monkeypatch):
     monkeypatch.setattr(llm_module.asyncio, "sleep", _no_sleep)
 
     client = LLMClient(Config(), model_registry=ModelRegistry(_models_config().definitions))
-    _collect(client, [{"role": "user", "content": "hi"}], model="coding")
+    _collect(client, [{"role": "user", "content": "hi"}], model="clinical")
 
     assert calls["n"] == 2
 
@@ -293,6 +465,7 @@ def test_client_uses_router_when_no_model_given(monkeypatch):
         return _FakeStream([_chunk(content="ok", finish_reason="stop")])
 
     monkeypatch.setattr(llm_module.litellm, "acompletion", fake_acompletion)
+    monkeypatch.setenv("LLM_ROUTING_ENABLED", "true")
 
     client = LLMClient(
         Config(),
@@ -302,6 +475,28 @@ def test_client_uses_router_when_no_model_given(monkeypatch):
     _collect(client, [{"role": "user", "content": "hello, simple question"}])
 
     assert seen["model"] == "openai/gpt-4o-mini"
+
+
+def test_client_does_not_route_when_routing_disabled(monkeypatch):
+    """An agent's configured model must not be silently overridden."""
+    seen = {}
+
+    async def fake_acompletion(**kwargs):
+        seen["model"] = kwargs["model"]
+        return _FakeStream([_chunk(content="ok", finish_reason="stop")])
+
+    monkeypatch.setattr(llm_module.litellm, "acompletion", fake_acompletion)
+    monkeypatch.setenv("LLM_ROUTING_ENABLED", "false")
+
+    client = LLMClient(
+        Config(),
+        model_registry=ModelRegistry(_models_config().definitions),
+        model_router=ModelRouter(),
+    )
+    _collect(client, [{"role": "user", "content": "assess the patient"}])
+
+    # Routed would be reasoning/anthropic; disabled → the configured default.
+    assert seen["model"] == "openai/gpt-4.1"
 
 
 def test_agent_routes_then_client_calls_litellm(monkeypatch):

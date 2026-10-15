@@ -1,0 +1,631 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>SOAP Agent | Clinical Documentation</title>
+<style>
+  :root {
+    --blue: #2563eb;
+    --blue-dark: #1d4ed8;
+    --blue-soft: #eff6ff;
+    --ink: #172033;
+    --muted: #64748b;
+    --line: #e2e8f0;
+    --surface: #ffffff;
+    --canvas: #f6f8fc;
+    --green: #15803d;
+    --green-bg: #f0fdf4;
+    --amber: #b45309;
+    --amber-bg: #fffbeb;
+    --red: #b91c1c;
+    --red-bg: #fef2f2;
+    --shadow: 0 8px 24px rgba(15, 23, 42, .05);
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--canvas); color: var(--ink); font: 14px/1.5 Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+  button, input, textarea, select { font: inherit; }
+  button { cursor: pointer; }
+  .app { min-height: 100vh; }
+  .topbar { height: 68px; display: flex; align-items: center; justify-content: space-between; padding: 0 30px; background: #fff; border-bottom: 1px solid var(--line); position: sticky; top: 0; z-index: 5; }
+  .brand { display:flex; align-items:center; gap:12px; font-weight:750; letter-spacing:-.02em; font-size:17px; }
+  .brand-mark { width:36px; height:36px; border-radius:11px; display:grid; place-items:center; background:var(--blue); color:#fff; font-size:21px; font-weight:500; box-shadow:0 5px 12px #2563eb30; }
+  .brand small { display:block; color:var(--muted); font-size:11px; font-weight:500; letter-spacing:.02em; }
+  .top-actions { display:flex; align-items:center; gap:10px; }
+  .avatar { width:34px; height:34px; border-radius:50%; background:#dbeafe; color:#1d4ed8; display:grid; place-items:center; font-weight:700; }
+  .btn { border:1px solid var(--line); background:#fff; color:#334155; padding:9px 13px; border-radius:9px; font-weight:650; display:inline-flex; align-items:center; gap:7px; }
+  .btn:hover { background:#f8fafc; }
+  .btn-primary { color:#fff; background:var(--blue); border-color:var(--blue); }
+  .btn-primary:hover { background:var(--blue-dark); }
+  .layout { max-width:1440px; margin:0 auto; padding:26px 30px 40px; display:grid; grid-template-columns:250px minmax(0,1fr); gap:24px; }
+  .sidebar { display:flex; flex-direction:column; gap:18px; }
+  .side-card, .card { background:var(--surface); border:1px solid var(--line); border-radius:14px; box-shadow:var(--shadow); }
+  .side-card { padding:17px; }
+  .side-title { font-size:11px; text-transform:uppercase; letter-spacing:.1em; color:#94a3b8; font-weight:800; margin:0 0 12px; }
+  .nav-item { display:flex; align-items:center; gap:11px; color:#475569; padding:10px 11px; border-radius:9px; margin:3px 0; font-weight:600; text-decoration:none; }
+  .nav-item.active { color:var(--blue-dark); background:var(--blue-soft); }
+  .nav-icon { width:20px; text-align:center; font-size:16px; }
+  .workflow { display:flex; gap:9px; align-items:flex-start; margin:13px 0; }
+  .step { width:25px; height:25px; display:grid; place-items:center; border-radius:50%; border:1px solid #cbd5e1; color:#64748b; flex:none; font-size:11px; font-weight:800; }
+  .step.done { color:#fff; background:var(--green); border-color:var(--green); }
+  .step.current { color:#fff; background:var(--blue); border-color:var(--blue); }
+  .workflow strong { display:block; font-size:12px; }
+  .workflow span { color:var(--muted); font-size:11px; }
+  .main { min-width:0; }
+  .breadcrumb { color:#94a3b8; font-size:12px; margin:0 0 9px; }
+  .page-head { display:flex; align-items:flex-start; justify-content:space-between; gap:20px; margin-bottom:22px; }
+  h1 { font-size:27px; line-height:1.2; letter-spacing:-.04em; margin:0 0 7px; }
+  .subtitle { color:var(--muted); margin:0; }
+  .head-badges { display:flex; flex-wrap:wrap; gap:8px; margin-top:14px; }
+  .pill { display:inline-flex; align-items:center; gap:6px; border-radius:999px; padding:5px 9px; font-size:11px; font-weight:750; }
+  .pill-blue { background:var(--blue-soft); color:var(--blue-dark); }
+  .pill-amber { background:var(--amber-bg); color:var(--amber); }
+  .pill-green { background:var(--green-bg); color:var(--green); }
+  .pill-gray { background:#f1f5f9; color:#475569; }
+  .patient-card { padding:20px; margin-bottom:18px; }
+  .patient-grid { display:grid; grid-template-columns:minmax(220px,1.5fr) repeat(3,minmax(110px,1fr)); gap:18px; align-items:center; }
+  .patient-name { display:flex; align-items:center; gap:13px; }
+  .patient-avatar { width:54px; height:54px; border-radius:14px; display:grid; place-items:center; background:#e0ecff; color:#1d4ed8; font-weight:800; font-size:18px; }
+  .patient-name h2 { margin:0; font-size:17px; }
+  .patient-name p { margin:3px 0 0; color:var(--muted); font-size:12px; }
+  .metric { border-left:1px solid var(--line); padding-left:18px; }
+  .metric label { display:block; color:var(--muted); font-size:11px; margin-bottom:4px; }
+  .metric strong { font-size:13px; font-weight:700; }
+  .section-row { display:flex; align-items:center; justify-content:space-between; gap:12px; margin:22px 0 12px; }
+  .section-row h2 { font-size:16px; margin:0; letter-spacing:-.02em; }
+  .section-row p { margin:3px 0 0; color:var(--muted); font-size:12px; }
+  .soap-grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:16px; }
+  .soap-card { overflow:hidden; }
+  .soap-head { display:flex; align-items:center; gap:12px; padding:15px 17px; border-bottom:1px solid var(--line); }
+  .letter { width:34px; height:34px; display:grid; place-items:center; border-radius:10px; color:#fff; font-size:16px; font-weight:800; }
+  .letter.s { background:#2563eb; } .letter.o { background:#0891b2; } .letter.a { background:#7c3aed; } .letter.p { background:#0f766e; }
+  .soap-head h3 { margin:0; font-size:14px; }
+  .soap-head p { margin:1px 0 0; color:var(--muted); font-size:11px; }
+  .soap-body { padding:17px; }
+  .field { margin-bottom:16px; }
+  .field:last-child { margin-bottom:0; }
+  .field-label { display:flex; justify-content:space-between; gap:8px; color:#64748b; font-size:10px; text-transform:uppercase; letter-spacing:.08em; font-weight:800; margin-bottom:6px; }
+  .field p { margin:0; color:#334155; }
+  .bullet-list { margin:0; padding-left:18px; color:#334155; }
+  .bullet-list li { margin:4px 0; }
+  .vitals { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:9px; }
+  .vital { border:1px solid var(--line); background:#fbfdff; border-radius:10px; padding:10px 11px; }
+  .vital label { display:block; color:var(--muted); font-size:11px; }
+  .vital strong { font-size:17px; letter-spacing:-.02em; }
+  .vital small { color:var(--muted); font-size:10px; margin-left:3px; }
+  .diagnosis { border:1px solid #fde68a; background:#fffbeb; border-radius:10px; padding:12px; }
+  .diagnosis strong { display:block; color:#92400e; font-size:13px; margin:5px 0 3px; }
+  .diagnosis p { font-size:12px; color:#78350f; margin:0; }
+  .problem-tags { display:flex; flex-wrap:wrap; gap:6px; }
+  .problem { background:#f1f5f9; color:#475569; border-radius:7px; padding:5px 8px; font-size:11px; font-weight:650; }
+  .med-table { width:100%; border-collapse:collapse; font-size:12px; }
+  .med-table th { color:#64748b; font-size:10px; text-transform:uppercase; letter-spacing:.06em; text-align:left; padding:9px 8px; background:#f8fafc; }
+  .med-table td { padding:10px 8px; border-top:1px solid var(--line); vertical-align:top; }
+  .summary-card { padding:18px 20px; margin-top:18px; }
+  .summary-head { display:flex; align-items:center; justify-content:space-between; gap:12px; margin-bottom:8px; }
+  .summary-head h2 { margin:0; font-size:15px; }
+  .summary-card p { margin:0; color:#334155; }
+  .review-card { margin-top:18px; padding:18px 20px; border-color:#fde68a; background:#fffdf7; }
+  .review-top { display:flex; align-items:flex-start; justify-content:space-between; gap:12px; }
+  .review-title { display:flex; align-items:center; gap:10px; }
+  .review-icon { width:36px; height:36px; display:grid; place-items:center; border-radius:10px; background:#fef3c7; color:#92400e; font-size:18px; }
+  .review-title h2 { margin:0; font-size:15px; }
+  .review-title p { margin:2px 0 0; color:#92400e; font-size:12px; }
+  .review-list { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:10px; margin:16px 0; }
+  .review-item { display:flex; gap:9px; align-items:flex-start; border:1px solid #f3e8c2; background:#fff; border-radius:9px; padding:11px; color:#475569; font-size:12px; }
+  .review-item span { color:#b45309; font-weight:900; }
+  .review-footer { display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px; padding-top:13px; border-top:1px solid #f3e8c2; }
+  .review-footer small { color:#92400e; }
+  .toast { position:fixed; bottom:22px; right:22px; background:#0f172a; color:#fff; border-radius:10px; padding:12px 16px; box-shadow:var(--shadow); opacity:0; transform:translateY(10px); pointer-events:none; transition:.2s; z-index:10; }
+  .toast.show { opacity:1; transform:translateY(0); }
+  .modal-backdrop { display:none; position:fixed; inset:0; background:#0f172a70; z-index:20; align-items:center; justify-content:center; padding:18px; }
+  .modal-backdrop.open { display:flex; }
+  .modal { width:min(720px,100%); max-height:90vh; overflow:auto; background:#fff; border-radius:16px; box-shadow:0 20px 60px #0f172a40; padding:22px; }
+  .modal-head { display:flex; justify-content:space-between; align-items:center; gap:12px; margin-bottom:15px; }
+  .modal-head h2 { margin:0; font-size:18px; }
+  .modal textarea { width:100%; min-height:320px; resize:vertical; border:1px solid var(--line); border-radius:10px; padding:12px; font:12px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace; color:#334155; }
+  .modal-actions { display:flex; justify-content:flex-end; gap:9px; margin-top:12px; }
+  .empty-note { color:var(--muted); font-size:12px; }
+  @media (max-width: 1050px) {
+    .layout { grid-template-columns:1fr; padding:20px; }
+    .sidebar { display:none; }
+    .patient-grid { grid-template-columns:repeat(2,minmax(0,1fr)); }
+    .metric { border-left:0; padding-left:0; }
+  }
+  @media (max-width: 680px) {
+    .topbar { padding:0 15px; }
+    .top-actions .btn:not(.btn-primary) { display:none; }
+    .layout { padding:16px 12px 28px; }
+    .page-head { flex-direction:column; }
+    h1 { font-size:23px; }
+    .soap-grid, .review-list { grid-template-columns:1fr; }
+    .patient-grid { grid-template-columns:1fr 1fr; gap:14px; }
+    .patient-name { grid-column:1/-1; }
+    .metric { border-top:1px solid var(--line); padding-top:10px; }
+    .vitals { grid-template-columns:1fr 1fr; }
+    .med-table { min-width:520px; }
+    .table-wrap { overflow-x:auto; }
+  }
+  @media print {
+    body { background:#fff; }
+    .topbar, .sidebar, .head-actions, .review-footer .btn, .toast, .modal-backdrop { display:none !important; }
+    .layout { display:block; max-width:none; padding:0; }
+    .card { box-shadow:none; break-inside:avoid; }
+    .soap-grid { gap:10px; }
+    .review-card { background:#fff; }
+  }
+</style>
+</head>
+<body>
+<div class="app">
+  <header class="topbar">
+    <div class="brand">
+      <div class="brand-mark">✚</div>
+      <div>SOAP Agent <small>CLINICAL DOCUMENTATION</small></div>
+    </div>
+    <div class="top-actions">
+      <button class="btn" id="viewJsonBtn">⌘ View JSON</button>
+      <button class="btn" id="printBtn">⤓ Export / Print</button>
+      <div class="avatar" title="Clinician review">DR</div>
+    </div>
+  </header>
+
+  <div class="layout">
+    <aside class="sidebar">
+      <div class="side-card">
+        <p class="side-title">Workspace</p>
+        <a class="nav-item active" href="#overview"><span class="nav-icon">▦</span> Encounter overview</a>
+        <a class="nav-item" href="#subjective"><span class="nav-icon">◉</span> Subjective</a>
+        <a class="nav-item" href="#objective"><span class="nav-icon">⊕</span> Objective</a>
+        <a class="nav-item" href="#assessment"><span class="nav-icon">⌕</span> Assessment</a>
+        <a class="nav-item" href="#plan"><span class="nav-icon">☑</span> Plan</a>
+        <a class="nav-item" href="#review"><span class="nav-icon">✓</span> Review status</a>
+      </div>
+      <div class="side-card">
+        <p class="side-title">Documentation flow</p>
+        <div class="workflow"><div class="step done">✓</div><div><strong>Transcript received</strong><span>Conversation source added</span></div></div>
+        <div class="workflow"><div class="step done">✓</div><div><strong>SOAP generated</strong><span>Structured draft created</span></div></div>
+        <div class="workflow"><div class="step current">3</div><div><strong>Clinician review</strong><span>Awaiting approval</span></div></div>
+        <div class="workflow"><div class="step">4</div><div><strong>Finalize note</strong><span>Not yet signed</span></div></div>
+      </div>
+      <div class="side-card">
+        <p class="side-title">Source information</p>
+        <div style="font-size:12px;color:#475569;font-weight:650">Consultation transcript</div>
+        <p style="font-size:11px;color:#64748b;margin:5px 0 12px">Partial coverage · Synthetic demo</p>
+        <span class="pill pill-amber">Requires clinician review</span>
+      </div>
+    </aside>
+
+    <main class="main" id="overview">
+      <div class="breadcrumb">Workspace / Encounters / <span style="color:#475569">Clinical note</span></div>
+      <div class="page-head">
+        <div>
+          <h1>Clinical encounter</h1>
+          <p class="subtitle">Review the SOAP note generated from a doctor–patient conversation.</p>
+          <div class="head-badges">
+            <span class="pill pill-blue">✦ AI-generated draft</span>
+            <span class="pill pill-amber">● Unsigned</span>
+            <span class="pill pill-gray">Encounter · Demo</span>
+          </div>
+        </div>
+        <div class="head-actions" style="display:flex;gap:9px;flex-wrap:wrap">
+          <button class="btn" id="editJsonBtn">Edit sample data</button>
+          <button class="btn btn-primary" id="reviewBtn">✓ Mark reviewed</button>
+        </div>
+      </div>
+
+      <section class="card patient-card">
+        <div class="patient-grid">
+          <div class="patient-name">
+            <div class="patient-avatar">JD</div>
+            <div><h2 id="patientName">Demo Patient</h2><p id="patientId">Patient ID: Not provided</p></div>
+          </div>
+          <div class="metric"><label>Encounter date</label><strong id="encounterDate">Not provided</strong></div>
+          <div class="metric"><label>Visit type</label><strong id="visitType">Outpatient</strong></div>
+          <div class="metric"><label>Note status</label><strong><span class="pill pill-amber" id="noteStatus">Draft</span></strong></div>
+        </div>
+      </section>
+
+      <div class="section-row">
+        <div><h2>SOAP documentation</h2><p>Four-part clinical note generated from the conversation.</p></div>
+        <span class="pill pill-gray">Version 1.0</span>
+      </div>
+
+      <div class="soap-grid">
+        <section class="card soap-card" id="subjective">
+          <div class="soap-head"><div class="letter s">S</div><div><h3>Subjective</h3><p>What the patient reports</p></div></div>
+          <div class="soap-body" id="subjectiveBody"></div>
+        </section>
+        <section class="card soap-card" id="objective">
+          <div class="soap-head"><div class="letter o">O</div><div><h3>Objective</h3><p>Measured findings and examination</p></div></div>
+          <div class="soap-body" id="objectiveBody"></div>
+        </section>
+        <section class="card soap-card" id="assessment">
+          <div class="soap-head"><div class="letter a">A</div><div><h3>Assessment</h3><p>Clinical impression and active problems</p></div></div>
+          <div class="soap-body" id="assessmentBody"></div>
+        </section>
+        <section class="card soap-card" id="plan">
+          <div class="soap-head"><div class="letter p">P</div><div><h3>Plan</h3><p>Management and follow-up</p></div></div>
+          <div class="soap-body" id="planBody"></div>
+        </section>
+      </div>
+
+      <section class="card summary-card">
+        <div class="summary-head"><h2>Clinical summary</h2><span class="pill pill-blue">AI summary</span></div>
+        <p id="summaryText"></p>
+      </section>
+
+      <section class="card review-card" id="review">
+        <div class="review-top">
+          <div class="review-title"><div class="review-icon">⚑</div><div><h2 id="reviewHeading">Clinician review required</h2><p id="reviewSubheading">Review clinical accuracy before signing or using this note.</p></div></div>
+          <span class="pill pill-amber" id="reviewBadge">Pending review</span>
+        </div>
+        <div class="review-list" id="reviewList"></div>
+        <div class="review-footer">
+          <small id="reviewFooterText">This is synthetic demonstration data. No real patient information is included.</small>
+          <div style="display:flex;gap:8px;flex-wrap:wrap">
+            <button class="btn" id="resetReviewBtn">Reset review status</button>
+            <button class="btn btn-primary" id="reviewBottomBtn">✓ Mark reviewed</button>
+          </div>
+        </div>
+      </section>
+    </main>
+  </div>
+</div>
+
+<div class="modal-backdrop" id="jsonModal" role="dialog" aria-modal="true" aria-labelledby="modalTitle">
+  <div class="modal">
+    <div class="modal-head"><h2 id="modalTitle">Sample SOAP JSON</h2><button class="btn" id="closeModalBtn">✕ Close</button></div>
+    <p class="empty-note">Upload a .json file, or paste JSON below. The dashboard accepts SOAP fields at the root or nested inside <code>soap_note</code>.</p>
+    <div class="modal-actions" style="justify-content:flex-start;margin-bottom:10px">
+      <label class="btn" for="jsonFileInput" style="cursor:pointer">↑ Upload JSON file</label>
+      <input id="jsonFileInput" type="file" accept=".json,application/json" style="display:none" />
+      <span id="fileName" class="empty-note">No file selected</span>
+    </div>
+    <textarea id="jsonEditor" spellcheck="false" aria-label="SOAP JSON editor"></textarea>
+    <div class="modal-actions"><button class="btn" id="copyJsonBtn">Copy JSON</button><button class="btn btn-primary" id="applyJsonBtn">Apply JSON</button></div>
+  </div>
+</div>
+<div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+<script>
+const sampleData = {
+  "document_type": "SOAP_NOTE",
+  "document_version": "1.0",
+  "patient": {"patient_id": null, "display_name": "Demo Patient"},
+  "encounter": {"encounter_id": "DEMO-001", "encounter_date": null, "consultation_type": "Outpatient", "clinician_id": null, "documentation_status": "DRAFT"},
+  "subjective": {
+    "chief_complaint": "Fever, headache, and cough for three days.",
+    "history_of_present_illness": "Patient reports fever, headache, and cough for three days. Fever reached 101°F yesterday. Associated symptoms include sore throat, runny nose, mild body pain, tiredness, and weakness. Patient denies chest pain and difficulty breathing. Paracetamol temporarily reduced the fever.",
+    "past_medical_history": ["No known medical conditions reported"],
+    "current_medications": [{"name": "Paracetamol", "usage": "Taken yesterday", "dose": null}],
+    "allergies": {"known_allergies": [], "status": "Patient reports no known drug allergies"}
+  },
+  "objective": {
+    "vital_signs": {
+      "temperature": {"value": 100.8, "unit": "°F"},
+      "blood_pressure": {"value": "120/80", "unit": "mmHg"},
+      "heart_rate": {"value": 88, "unit": "beats/min"},
+      "oxygen_saturation": {"value": 98, "unit": "%"}
+    },
+    "physical_examination": {"throat": "Mild redness", "lungs": "No abnormal lung sounds detected"},
+    "investigations": []
+  },
+  "assessment": {
+    "primary_diagnosis": {"name": "Possible viral respiratory tract infection", "status": "Suspected"},
+    "active_problems": ["Fever", "Headache", "Cough", "Sore throat", "Runny nose", "Mild body pain", "Fatigue"],
+    "clinical_reasoning": "Symptoms and examination findings may be consistent with a viral respiratory infection. The cause has not been confirmed.",
+    "uncertainties": ["No laboratory investigations documented", "Underlying cause not confirmed"]
+  },
+  "plan": {
+    "medications": [{"name": "Paracetamol", "instructions": "Use only as directed by a healthcare professional", "prescribed": false}],
+    "non_pharmacological_management": ["Maintain adequate hydration", "Get adequate rest"],
+    "follow_up": ["Return for reassessment if symptoms persist or worsen"],
+    "safety_netting": ["Seek urgent medical care for difficulty breathing, chest pain, confusion, or severe weakness"]
+  },
+  "summary": "Patient presents with a three-day history of fever, headache, and cough with associated upper respiratory symptoms. Examination shows mild throat redness and no abnormal lung sounds. A viral respiratory infection is suspected but not confirmed. Supportive care and appropriate follow-up were advised.",
+  "documentation_metadata": {"source_types": ["consultation_transcript"], "source_coverage": "PARTIAL", "requires_clinician_review": true},
+  "review_flags": [
+    {"severity": "Moderate", "category": "Diagnosis", "description": "The viral respiratory infection is suspected, not confirmed; no investigations are documented."},
+    {"severity": "Low", "category": "Medication", "description": "Exact paracetamol dose and frequency are not specified. Do not infer prescription instructions."},
+    {"severity": "Moderate", "category": "Follow-up", "description": "A follow-up interval is not specified; only return precautions are documented."}
+  ]
+};
+let data = structuredClone(sampleData);
+let reviewed = false;
+
+const $ = id => document.getElementById(id);
+const text = (el, value) => { el.textContent = value == null || value === "" ? "Not documented" : String(value); };
+function safe(v) { return v == null || v === "" ? "Not documented" : String(v); }
+function list(items) {
+  if (!Array.isArray(items) || !items.length) return '<p class="empty-note">None documented.</p>';
+  const ul = document.createElement('ul'); ul.className = 'bullet-list';
+  items.forEach(item => { const li = document.createElement('li'); li.textContent = typeof item === 'object' ? JSON.stringify(item) : String(item); ul.appendChild(li); });
+  return ul.outerHTML;
+}
+function field(label, content, isHtml=false) {
+  const wrapper = document.createElement('div'); wrapper.className = 'field';
+  const lab = document.createElement('div'); lab.className = 'field-label'; lab.textContent = label; wrapper.appendChild(lab);
+  if (content instanceof Node) wrapper.appendChild(content);
+  else { const p = document.createElement('p'); p.textContent = safe(content); wrapper.appendChild(p); }
+  return wrapper;
+}
+function setBody(id, children) { const el = $(id); el.replaceChildren(...children); }
+function tagList(items) {
+  const wrap = document.createElement('div'); wrap.className = 'problem-tags';
+  (items || []).forEach(item => { const tag = document.createElement('span'); tag.className='problem'; tag.textContent=String(item); wrap.appendChild(tag); });
+  if (!items || !items.length) { const p = document.createElement('p'); p.className='empty-note'; p.textContent='None documented.'; return p; }
+  return wrap;
+}
+function asArray(value) {
+  if (value == null || value === '') return [];
+  return Array.isArray(value) ? value : [value];
+}
+function humanize(key) {
+  return String(key || '').replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+}
+function displayValue(value) {
+  if (value === null || value === undefined || value === '') return 'Not documented';
+  if (typeof value === 'boolean') return value ? 'Yes' : 'No';
+  if (typeof value !== 'object') return String(value);
+  if (Array.isArray(value)) return value.map(displayValue).join('; ');
+  return Object.entries(value).map(([k,v]) => `${humanize(k)}: ${displayValue(v)}`).join(' · ');
+}
+function genericFields(obj) {
+  const wrap = document.createElement('div');
+  if (!obj || typeof obj !== 'object' || Array.isArray(obj)) {
+    const p=document.createElement('p'); p.textContent=displayValue(obj); wrap.appendChild(p); return wrap;
+  }
+  const entries=Object.entries(obj);
+  if (!entries.length) { const p=document.createElement('p'); p.className='empty-note'; p.textContent='None documented.'; wrap.appendChild(p); return wrap; }
+  entries.forEach(([key,value])=>{
+    const row=document.createElement('div'); row.className='field';
+    const label=document.createElement('div'); label.className='field-label'; label.textContent=humanize(key);
+    row.appendChild(label);
+    if (Array.isArray(value)) row.appendChild(tagList(value.map(v=>typeof v==='object'?displayValue(v):v)));
+    else if (value && typeof value==='object') row.appendChild(genericFields(value));
+    else { const p=document.createElement('p'); p.textContent=displayValue(value); row.appendChild(p); }
+    wrap.appendChild(row);
+  });
+  return wrap;
+}
+function renderSubjective(s={}) {
+  const children=[];
+  const known = [
+    ['chief_complaint','Chief complaint'],
+    ['history_of_present_illness','History of present illness'],
+    ['review_of_systems','Review of systems'],
+    ['past_medical_history','Past medical history'],
+    ['past_surgical_history','Past surgical history'],
+    ['family_history','Family history'],
+    ['social_history','Social history'],
+    ['current_medications','Current medications'],
+    ['allergies','Allergies'],
+    ['relevant_history','Relevant history']
+  ];
+  const aliases = {history_of_present_illness:['hpi'], current_medications:['medications'], past_medical_history:['medical_history']};
+  const consumed = new Set();
+  known.forEach(([key,label])=>{
+    let value=s[key];
+    if(value===undefined && aliases[key]) {
+      const alias=aliases[key].find(k=>s[k]!==undefined);
+      if(alias) { value=s[alias]; consumed.add(alias); }
+    }
+    if(value===undefined) return;
+    consumed.add(key);
+    if(key==='allergies' && value && typeof value==='object') value=value.status || value.known_allergies || value.items || value;
+    if(key==='current_medications') {
+      const medList=asArray(value);
+      value=medList.length ? medList.map(m=>typeof m==='object'?displayValue(m):String(m)).join('\n') : 'None documented';
+      const p=document.createElement('p'); p.style.whiteSpace='pre-line'; p.textContent=value; children.push(field(label,p));
+    } else if(['past_medical_history','past_surgical_history','family_history','social_history','relevant_history','review_of_systems'].includes(key)) {
+      children.push(field(label,tagList(asArray(value).map(v=>typeof v==='object'?displayValue(v):v))));
+    } else {
+      children.push(field(label,typeof value==='object'?genericFields(value):value));
+    }
+  });
+  const extras=Object.fromEntries(Object.entries(s).filter(([k])=>!consumed.has(k)));
+  if(Object.keys(extras).length) children.push(field('Additional subjective details',genericFields(extras)));
+  if(!children.length) children.push(field('Subjective details',genericFields(s)));
+  setBody('subjectiveBody',children);
+}
+function renderObjective(o={}) {
+  const children=[];
+  const vitalsObj=o.vital_signs || o.vitals;
+  if(vitalsObj && typeof vitalsObj==='object') {
+    const vitals=document.createElement('div'); vitals.className='vitals';
+    const entries=Array.isArray(vitalsObj)
+      ? vitalsObj.map((item,index)=>[item?.name || `Measurement ${index+1}`, item])
+      : Object.entries(vitalsObj);
+    entries.forEach(([key,item])=>{
+      const box=document.createElement('div'); box.className='vital';
+      const lab=document.createElement('label'); lab.textContent=humanize(key);
+      const rawValue=(item && typeof item==='object') ? item.value : item;
+      const strong=document.createElement('strong');
+      strong.textContent=rawValue===undefined || rawValue===null ? 'Not documented' : safe(rawValue);
+      const unit=document.createElement('small'); unit.textContent=(item && typeof item==='object' && item.unit)?item.unit:'';
+      box.append(lab,strong,unit); vitals.appendChild(box);
+    });
+    children.push(field('Vital signs',vitals));
+  }
+  const exam=o.physical_examination || o.examination;
+  if(exam!==undefined) children.push(field('Physical examination',genericFields(exam)));
+  const investigations=o.investigation_results ?? o.investigations;
+  if(investigations!==undefined) children.push(field('Investigations',tagList(asArray(investigations).map(v=>typeof v==='object'?displayValue(v):v))));
+  const known=['vital_signs','vitals','physical_examination','examination','investigation_results','investigations'];
+  const extras=Object.fromEntries(Object.entries(o).filter(([k])=>!known.includes(k)));
+  if(Object.keys(extras).length) children.push(field('Additional objective findings',genericFields(extras)));
+  if(!children.length) children.push(field('Objective details',genericFields(o)));
+  setBody('objectiveBody',children);
+}
+function renderAssessment(a={}) {
+  const children=[];
+  const d=a.primary_diagnosis || a.diagnosis;
+  if(d!==undefined) {
+    const diag=document.createElement('div'); diag.className='diagnosis';
+    const status=String((d && typeof d==='object' && (d.status || d.clinical_status || d.diagnostic_certainty)) || '').toLowerCase();
+    const confirmed=/confirm|final|established/.test(status) && !/unconfirmed|not confirmed|suspected|possible/.test(status);
+    const badge=document.createElement('span'); badge.className='pill '+(confirmed?'pill-green':'pill-amber'); badge.textContent=confirmed?'Confirmed':'Suspected · Not confirmed';
+    const name=document.createElement('strong'); name.textContent=safe(typeof d==='object'?(d.name || d.display_name || d.diagnosis):d);
+    const note=document.createElement('p'); note.textContent=confirmed?'Marked as confirmed in the supplied data.':'Clinical impression only. Verify before treating this as a confirmed diagnosis.';
+    diag.append(badge,name,note); children.push(field('Primary diagnosis',diag));
+  }
+  const aliases = [
+    ['active_problems','Active problems'],['differential_diagnoses','Differential diagnoses'],
+    ['secondary_diagnoses','Secondary diagnoses'],['clinical_reasoning','Clinical reasoning'],
+    ['uncertainties','Uncertainties']
+  ];
+  const known=['primary_diagnosis','diagnosis'];
+  aliases.forEach(([key,label])=>{
+    if(a[key]===undefined) return;
+    known.push(key);
+    const value=a[key];
+    if(Array.isArray(value)) children.push(field(label,tagList(value.map(v=>typeof v==='object'?displayValue(v):v))));
+    else children.push(field(label,typeof value==='object'?genericFields(value):value));
+  });
+  const extras=Object.fromEntries(Object.entries(a).filter(([k])=>!known.includes(k)));
+  if(Object.keys(extras).length) children.push(field('Additional assessment details',genericFields(extras)));
+  if(!children.length) children.push(field('Assessment details',genericFields(a)));
+  setBody('assessmentBody',children);
+}
+function renderPlan(p={}) {
+  const children=[];
+  const meds=asArray(p.medications || p.medication_plan);
+  const tableWrap=document.createElement('div'); tableWrap.className='table-wrap';
+  const table=document.createElement('table'); table.className='med-table';
+  table.innerHTML='<thead><tr><th>Medication</th><th>Instructions / details</th><th>Status</th></tr></thead>';
+  const tbody=document.createElement('tbody');
+  meds.forEach(m=>{
+    const med=typeof m==='object'&&m!==null?m:{name:String(m)};
+    const name=med.name || med.medication_name || med.display_name || 'Medication';
+    const details=med.instructions || med.frequency || Object.fromEntries(Object.entries(med).filter(([k])=>!['name','medication_name','display_name','prescribed','action_type','prescription_status'].includes(k)));
+    const status=med.prescribed===true?'Prescribed':(med.prescription_status || med.action_type || 'Not specified');
+    const tr=document.createElement('tr');
+    [name,displayValue(details),status].forEach((value,i)=>{
+      const td=document.createElement('td'); td.textContent=safe(value);
+      if(i===2){const span=document.createElement('span'); span.className='pill '+(/prescribed/i.test(String(value))&&!/not prescribed/i.test(String(value))?'pill-green':'pill-gray'); span.textContent=td.textContent; td.textContent=''; td.appendChild(span);}
+      tr.appendChild(td);
+    });
+    tbody.appendChild(tr);
+  });
+  if(!meds.length){const tr=document.createElement('tr'),td=document.createElement('td');td.colSpan=3;td.textContent='No medications documented';tr.appendChild(td);tbody.appendChild(tr);}
+  table.appendChild(tbody);tableWrap.appendChild(table);
+  children.push(field('Medication details',tableWrap));
+  const sections=[
+    [['non_pharmacological_management','non_medication_management','counselling'],'Non-pharmacological management'],
+    [['investigations','investigation_orders'],'Investigations'],
+    [['procedures'],'Procedures'],
+    [['referrals'],'Referrals'],
+    [['follow_up','followup'],'Follow-up'],
+    [['safety_netting','warnings'],'Safety netting']
+  ];
+  const consumed=['medications','medication_plan'];
+  sections.forEach(([keys,label])=>{
+    const key=keys.find(k=>p[k]!==undefined);
+    if(!key) return;
+    consumed.push(key);
+    const values=asArray(p[key]);
+    children.push(field(label,tagList(values.map(v=>typeof v==='object'?displayValue(v):v))));
+  });
+  const extras=Object.fromEntries(Object.entries(p).filter(([k])=>!consumed.includes(k)));
+  if(Object.keys(extras).length) children.push(field('Additional plan details',genericFields(extras)));
+  setBody('planBody',children);
+}
+function renderReview() {
+  const meta=data.documentation_metadata || {};
+  const flags=Array.isArray(data.review_flags)?data.review_flags:[];
+  $('reviewList').replaceChildren();
+  if(flags.length) flags.forEach(f=>{
+    const item=document.createElement('div');item.className='review-item';
+    const mark=document.createElement('span');mark.textContent='!';
+    const body=document.createElement('div');
+    const title=document.createElement('strong');title.textContent=`${safe(f.severity)} · ${safe(f.category)}`;
+    const desc=document.createElement('div');desc.textContent=safe(f.description);
+    body.append(title,desc);item.append(mark,body);$('reviewList').appendChild(item);
+  });
+  else { const p=document.createElement('p');p.className='empty-note';p.textContent='No review flags supplied.';$('reviewList').appendChild(p); }
+  const required=meta.requires_clinician_review !== false;
+  $('reviewHeading').textContent=reviewed?'Review marked complete':(required?'Clinician review required':'Clinician review not flagged');
+  $('reviewSubheading').textContent=reviewed?'Marked reviewed in this demo only. This does not constitute a clinical signature.':'Review clinical accuracy before signing or using this note.';
+  $('reviewBadge').textContent=reviewed?'Reviewed · Demo':(required?'Pending review':'Review not flagged');
+  $('reviewBadge').className='pill '+(reviewed?'pill-green':(required?'pill-amber':'pill-gray'));
+  $('reviewFooterText').textContent=reviewed?'Demo status updated locally; no record was saved to a server.':'This is synthetic demonstration data. No real patient information is included.';
+  $('reviewBtn').textContent=reviewed?'✓ Reviewed (demo)':'✓ Mark reviewed';
+  $('reviewBottomBtn').textContent=reviewed?'✓ Reviewed (demo)':'✓ Mark reviewed';
+}
+function render() {
+  const patient=data.patient||{}, enc=data.encounter||{}, s=data.subjective||{}, o=data.objective||{}, a=data.assessment||{}, p=data.plan||{};
+  text($('patientName'),patient.display_name || 'Demo Patient');
+  text($('patientId'),'Patient ID: '+(patient.patient_id || 'Not provided'));
+  text($('encounterDate'),enc.encounter_date || 'Not provided');
+  text($('visitType'),enc.consultation_type || 'Not documented');
+  text($('noteStatus'),reviewed?'Reviewed (demo)':(enc.documentation_status || 'Draft'));
+  $('summaryText').textContent=safe(data.summary || 'No summary was provided in the uploaded JSON.');
+  renderSubjective(s);renderObjective(o);renderAssessment(a);renderPlan(p);renderReview();
+}
+function showToast(message) { const t=$('toast');t.textContent=message;t.classList.add('show');setTimeout(()=>t.classList.remove('show'),2400); }
+function openModal() { $('jsonEditor').value=JSON.stringify(data,null,2);$('jsonModal').classList.add('open'); }
+function closeModal() { $('jsonModal').classList.remove('open'); }
+$('viewJsonBtn').addEventListener('click',openModal);
+$('editJsonBtn').addEventListener('click',openModal);
+$('closeModalBtn').addEventListener('click',closeModal);
+$('jsonModal').addEventListener('click',e=>{if(e.target===$('jsonModal'))closeModal();});
+$('printBtn').addEventListener('click',()=>window.print());
+$('reviewBtn').addEventListener('click',()=>{reviewed=!reviewed;renderReview();showToast(reviewed?'Marked reviewed in this demo.':'Review status reset.');});
+$('reviewBottomBtn').addEventListener('click',()=>{reviewed=!reviewed;renderReview();showToast(reviewed?'Marked reviewed in this demo.':'Review status reset.');});
+$('resetReviewBtn').addEventListener('click',()=>{reviewed=false;renderReview();showToast('Review status reset.');});
+function applyParsedJson(parsed) {
+  if(!parsed || typeof parsed!=='object' || Array.isArray(parsed)) throw new Error('The JSON root must be an object.');
+  // The SOAP agent output may keep SOAP sections inside soap_note.
+  if (parsed.soap_note && typeof parsed.soap_note === 'object') {
+    const nested = parsed.soap_note;
+    ['subjective','objective','assessment','plan','summary'].forEach(k => {
+      if (parsed[k] === undefined && nested[k] !== undefined) parsed[k] = nested[k];
+    });
+  }
+  const required=['subjective','objective','assessment','plan'];
+  const missing=required.filter(k=>!(k in parsed));
+  if(missing.length) throw new Error('Missing required SOAP sections: '+missing.join(', ')+'.');
+  // Summary is optional in this schema; provide a useful fallback rather than rejecting valid JSON.
+  if (!parsed.summary) {
+    parsed.summary =
+      parsed.assessment?.clinical_reasoning ||
+      parsed.subjective?.history_of_present_illness ||
+      parsed.subjective?.chief_complaint ||
+      'No summary was provided in the uploaded JSON.';
+  }
+  data=parsed;
+  reviewed=false;
+  render();
+  closeModal();
+  showToast('JSON loaded successfully.');
+}
+$('applyJsonBtn').addEventListener('click',()=>{
+  try {
+    const parsed=JSON.parse($('jsonEditor').value);
+    applyParsedJson(parsed);
+  } catch(err) { showToast('JSON not applied: '+err.message); }
+});
+$('jsonFileInput').addEventListener('change', async (event)=>{
+  const file=event.target.files && event.target.files[0];
+  if(!file) return;
+  $('fileName').textContent=file.name;
+  try {
+    const content=await file.text();
+    // Validate and display the file content in the editor before applying it.
+    const parsed=JSON.parse(content);
+    $('jsonEditor').value=JSON.stringify(parsed,null,2);
+    applyParsedJson(parsed);
+  } catch(err) {
+    showToast('Could not load JSON: '+err.message);
+  }
+});
+$('copyJsonBtn').addEventListener('click',async()=>{
+  try { await navigator.clipboard.writeText($('jsonEditor').value);showToast('JSON copied.'); }
+  catch { $('jsonEditor').select();document.execCommand('copy');showToast('JSON selected/copied where supported.'); }
+});
+document.addEventListener('keydown',e=>{if(e.key==='Escape')closeModal();});
+render();
+</script>
+</body>
+</html>

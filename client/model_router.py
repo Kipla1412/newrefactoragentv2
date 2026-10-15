@@ -1,7 +1,7 @@
 """Task-to-model routing.
 
-The router maps a request onto a *logical* model name (``fast``,
-``coding``, ``reasoning``). It is deliberately independent of LiteLLM:
+The router maps a clinical request onto a *logical* model name (``fast``,
+``clinical``, ``retrieval``). It is deliberately independent of LiteLLM:
 it never imports or references a provider — it only produces logical
 names that the ModelRegistry then resolves to LiteLLM model strings.
 
@@ -17,18 +17,23 @@ from typing import Any, Iterable
 class TaskType(str, Enum):
     """Coarse task categories the router understands."""
 
+    # Short conversational turns: greetings, clarifications, intake follow-ups.
     SIMPLE = "simple"
-    CODING = "coding"
-    COMPLEX = "complex"
+    # Clinical reasoning and documentation: assessment, diagnosis, SOAP,
+    # treatment planning — routed to the strongest model.
+    CLINICAL = "clinical"
+    # Record / knowledge lookups: patient records, wiki, knowledge graph,
+    # document retrieval — tool-driven, so a cheap model is enough.
+    RETRIEVAL = "retrieval"
 
 
 class ModelRouter:
-    """Route a request to a logical model name.
+    """Route a clinical request to a logical model name.
 
     Routing is a pure function of the request: no network calls, no
     provider knowledge. The mapping from task type to logical model is
-    configurable so applications can point ``fast``/``coding``/
-    ``reasoning`` at different models without changing this class.
+    configurable so applications can point ``fast``/``clinical``/
+    ``retrieval`` at different models without changing this class.
 
     Attributes:
         routes: Mapping of TaskType value to logical model name.
@@ -36,25 +41,26 @@ class ModelRouter:
 
     DEFAULT_ROUTES: dict[str, str] = {
         TaskType.SIMPLE.value: "fast",
-        TaskType.CODING.value: "coding",
-        TaskType.COMPLEX.value: "reasoning",
+        TaskType.CLINICAL.value: "reasoning",
+        TaskType.RETRIEVAL.value: "fast",
     }
 
-    # Substrings that hint at a coding-heavy request.
-    _CODING_HINTS: tuple[str, ...] = (
-        "code", "function", "class ", "method", "refactor", "bug", "stack trace",
-        "traceback", "compile", "syntax", "debug", "unit test", "pytest",
-        "regex", "algorithm", "api ", "endpoint", "sql", "query", "json",
-        "python", "javascript", "typescript", "java", "golang", "rust",
-        "import ", "def ", "async ", "database", "dockerfile",
+    # Substrings that hint at clinical reasoning / documentation work.
+    # Checked first so ambiguous requests bias toward the stronger model.
+    _CLINICAL_HINTS: tuple[str, ...] = (
+        "assess", "assessment", "diagnos", "differential", "treatment",
+        "prescribe", "prescription", "dosage", "dose", "risk", "red flag",
+        "triage", "prognosis", "clinical", "soap", "recommend", "plan of care",
+        "contraindication", "interpret", "acuity", "severity", "comorbid",
+        "symptom", "vital sign", "refer",
     )
 
-    # Substrings that hint at a reasoning-heavy request.
-    _COMPLEX_HINTS: tuple[str, ...] = (
-        "analyze", "analyse", "analysis", "design", "architecture", "strategy",
-        "trade-off", "tradeoff", "compare", "evaluate", "critique", "research",
-        "why ", "step by step", "multi-step", "in depth", "plan ", "reasoning",
-        "diagnos", "differential", "root cause", "optimi", "prove", "derive",
+    # Substrings that hint at a record / knowledge lookup.
+    _RETRIEVAL_HINTS: tuple[str, ...] = (
+        "look up", "lookup", "find", "search", "retrieve", "pull up",
+        "show me", "patient record", "records", "history of", "chart",
+        "wiki", "knowledge graph", "ehr", "who treats", "which doctor",
+        "allergies", "medication", "diseases", "taking", "lab result", "report",
     )
 
     def __init__(self, routes: dict[str, str] | None = None) -> None:
@@ -69,8 +75,10 @@ class ModelRouter:
     def classify(self, text: str | None) -> TaskType:
         """Classify free text into a coarse task type.
 
-        Coding hints take precedence over reasoning hints, which take
-        precedence over the simple default.
+        Clinical hints take precedence over retrieval hints, which take
+        precedence over the simple default. The ordering is deliberate: a
+        clinical request that also mentions a record is still routed to
+        the stronger model.
 
         Args:
             text: The user request text.
@@ -82,10 +90,10 @@ class ModelRouter:
             return TaskType.SIMPLE
 
         lowered = text.lower()
-        if any(hint in lowered for hint in self._CODING_HINTS):
-            return TaskType.CODING
-        if any(hint in lowered for hint in self._COMPLEX_HINTS):
-            return TaskType.COMPLEX
+        if any(hint in lowered for hint in self._CLINICAL_HINTS):
+            return TaskType.CLINICAL
+        if any(hint in lowered for hint in self._RETRIEVAL_HINTS):
+            return TaskType.RETRIEVAL
         return TaskType.SIMPLE
 
     def route(

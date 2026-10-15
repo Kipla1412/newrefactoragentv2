@@ -1,26 +1,29 @@
 """
 FastAPI application module
 """
-from fastapi.staticfiles import StaticFiles
 from contextlib import asynccontextmanager
+from pathlib import Path
+
 from fastapi import FastAPI, Request
-import logging
-from fastapi.responses import JSONResponse
-
-from agent.agent import Agent
-from config.config import Config
-from customagents.sessionmanager import SessionManager
-from api.routers.agent import router as agent_router
-from api.routers.consult import router as consult_router
-from api.routers.ehr import router as ehr_router
-from api.routers.document import router as doc_router
-from api.routers.pdf import router as pdf_router
-
-from api.wsrouters.webs2s import router as webs2s_router
-from api.wsrouters.diarize import router as diarize_router
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
+import logging
 
 from api.auth import decode_token
+from api.routers.assessment import router as assessment_router
+from api.routers.clinical import router as clinical_router
+from api.routers.consult import router as consult_router
+from api.routers.doc import router as doc_router
+from api.routers.document import router as document_router
+from api.routers.ehr import router as ehr_router
+from api.routers.pdf import router as pdf_router
+from api.routers.soap import router as soap_router
+from api.routers.workflow import router as workflow_router
+from api.wsrouters.diarize import router as diarize_router
+from api.wsrouters.webs2s import router as webs2s_router
+from config.application_bootstrap import ApplicationBootstrap, RuntimeState
+from config.config import Config
+from customagents.factory import AgentFactory
 
 logging.basicConfig(
     level=logging.INFO,
@@ -28,35 +31,75 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+# (router, required agents). A router is mounted only when *all* of its
+# required agents are enabled in agents.yaml.
+ROUTER_AGENT_REQUIREMENTS: list[tuple[object, tuple[str, ...]]] = [
+    (doc_router, ("doc",)),
+    (soap_router, ("soap",)),
+    (assessment_router, ("assessment",)),
+    (clinical_router, ("clinical_extraction",)),
+    (workflow_router, ("soap", "assessment", "clinical_extraction")),
+    (document_router, ("document_retrieval",)),
+    (pdf_router, ("pdf_chat",)),
+    (ehr_router, ("ehr",)),
+]
+
+
+def _mount_agent_routers(app: FastAPI, enabled_agents: set[str]) -> None:
+    """Mount the agent sub-routers whose required agents are enabled.
+
+    Args:
+        app: The FastAPI application.
+        enabled_agents: Set of enabled agent names from the bootstrap.
+    """
+    for router, required in ROUTER_AGENT_REQUIREMENTS:
+        if set(required).issubset(enabled_agents):
+            app.include_router(router, prefix="/api")
+            logger.info("Mounted router (requires %s)", ", ".join(required))
+        else:
+            logger.info(
+                "Skipped router (requires %s; enabled: %s)",
+                ", ".join(required),
+                ", ".join(sorted(enabled_agents)),
+            )
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
 
     logger.info("Starting Alees AI Agent Runtime")
 
-    # Load configuration (TOML + agents.yaml) once at startup.
-    from pathlib import Path
-    from config.loader import load_config
+    # The runtime state is computed once at import (below) so the OpenAPI
+    # schema reflects the enabled agents before the server starts. The
+    # lifespan only publishes it onto app.state.
+    state: RuntimeState = app.state.runtime
 
-    config = load_config(cwd=Path.cwd())
-    session_manager = SessionManager()
+    app.state.config = state.config
+    app.state.agent_config = state.agent_config
+    app.state.model_registry = state.model_registry
+    app.state.prompt_registry = state.prompt_registry
+    app.state.session_manager = state.session_manager
 
-    app.state.config = config
-    app.state.session_manager = session_manager
-
-    logger.info("System initialized successfully")
+    logger.info(
+        "System initialized successfully — %d agents enabled: %s",
+        len(state.enabled_agents),
+        ", ".join(state.enabled_agents),
+    )
 
     yield
 
     logger.info("Shutting down runtime")
 
 # Create FastAPI application
-def create_app():
+def create_app(state: RuntimeState):
 
     app = FastAPI(
         title="AI Agent API",
         version="1.0",
         lifespan=lifespan
     )
+
+    app.state.runtime = state
 
     app.add_middleware(
         CORSMiddleware,
@@ -66,7 +109,7 @@ def create_app():
         allow_headers=["*"],
     )
     
-   
+    
     @app.middleware("http")
     async def auth_middleware(request: Request, call_next):
 
@@ -103,14 +146,21 @@ def create_app():
 
         return response
 
-    app.include_router(agent_router, prefix="/api")
-    app.include_router(consult_router, prefix="/api")
-    app.include_router(ehr_router, prefix="/api")
-    app.include_router(doc_router, prefix="/api")
-    app.include_router(pdf_router, prefix="/api")
+    enabled = set(state.enabled_agents)
 
-    app.include_router(webs2s_router, prefix="/ws")
-    app.include_router(diarize_router, prefix="/ws")
+    # Mount the HTTP agent routers only when their agents are enabled.
+    _mount_agent_routers(app, enabled)
+
+    # The consult router exposes both /consult and /intake, so it is
+    # mounted when either agent is enabled.
+    if {"consult", "intake"} & enabled:
+        app.include_router(consult_router, prefix="/api")
+
+    # WebSocket routers — only mount when the backing agent is enabled.
+    if {"voice_intake", "voice_consult"} & enabled:
+        app.include_router(webs2s_router, prefix="/ws")
+    if "diarize" in enabled:
+        app.include_router(diarize_router, prefix="/ws")
 
     @app.get("/health")
     async def health():
@@ -119,11 +169,15 @@ def create_app():
     return app
 
 
-# Global app instance
-app = create_app()
+# Global app instance — bootstrap once at import so the OpenAPI schema
+# reflects the enabled agents before the server starts.
+_bootstrap = ApplicationBootstrap(
+    base_dir=Path.cwd(),
+    known_agents=AgentFactory.known_agent_names(),
+)
+_runtime_state = _bootstrap.run()
+app = create_app(_runtime_state)
+
 
 def get_config(request: Request) -> Config:
     return request.app.state.config
-# Helper function to get agent
-# def get_agent(request: Request) -> Agent:
-#     return request.app.state.agent

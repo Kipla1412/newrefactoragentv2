@@ -33,14 +33,14 @@ def get_agents_yaml_path(cwd: Path | None = None) -> Path:
     """Return the path to the agents.yaml configuration file.
 
     Args:
-        cwd: Project root to resolve ``config/agents.yaml`` from. Defaults
-            to the project root derived from this module's location.
+        cwd: Project root that contains ``agents.yaml``. Defaults to the
+            project root derived from this module's location.
 
     Returns:
-        The absolute path to ``config/agents.yaml``.
+        The absolute path to ``agents.yaml`` at the project root.
     """
     project_root = cwd or Path(__file__).resolve().parent.parent
-    return project_root / "config" / AGENTS_YAML_FILE_NAME
+    return project_root / AGENTS_YAML_FILE_NAME
 
 
 def _parse_toml(path: Path):
