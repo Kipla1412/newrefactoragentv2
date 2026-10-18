@@ -39,3 +39,7 @@ build-backend = "setuptools.build_meta"
 
 [tool.setuptools.packages.find]
 include = ["*"]
+
+# Skill instructions are data, not importable modules.
+[tool.setuptools.package-data]
+skills = ["library/**/*.md"]

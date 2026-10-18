@@ -11,6 +11,7 @@ from config.config import ApprovalPolicy, Config
 from config.loader import load_config
 from prompts.system import get_system_prompt
 from ui.tui import TUI, get_console
+from utils.logging_config import setup_logging
 
 console = get_console()
 
@@ -331,6 +332,8 @@ def main(
     prompt: str | None,
     cwd: Path | None,
 ):
+    setup_logging()
+
     try:
         config = load_config(cwd=cwd)
     except Exception as e:

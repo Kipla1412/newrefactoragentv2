@@ -33,6 +33,9 @@ class AgentYaml(BaseModel):
         name: Logical agent name matching the AgentType string.
         model: Logical model name resolved by the ModelRegistry.
         prompt: Logical prompt name resolved by the PromptRegistry.
+        skill: Logical skill name activated by default for this agent,
+            resolved by the SkillRegistry. None means the agent only uses a
+            skill when the caller explicitly asks for one.
         tools: Logical tool names resolved by the existing ToolRegistry.
             None leaves the agent's tool set unrestricted; an empty list
             means the agent uses no tools.
@@ -42,6 +45,7 @@ class AgentYaml(BaseModel):
     name: str
     model: str | None = None
     prompt: str | None = None
+    skill: str | None = None
     tools: list[str] | None = None
     settings: AgentSettings | None = None
 

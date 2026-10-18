@@ -440,19 +440,29 @@ class AgentOverrideApplier:
     prompt and tools, keeping that knowledge out of the factory.
     """
 
-    def apply(self, agent: Any, prompt: str | None, tools: list | None) -> None:
-        """Apply the resolved prompt and tools to an agent.
+    def apply(
+        self,
+        agent: Any,
+        prompt: str | None,
+        tools: list | None,
+        skill: str | None = None,
+    ) -> None:
+        """Apply the resolved prompt, tools, and default skill to an agent.
 
         Args:
             agent: The freshly constructed agent.
             prompt: Prompt content, or None to keep the agent's default.
             tools: Resolved tools, or None to leave tools unrestricted.
+            skill: Skill name configured for this agent, or None when the
+                agent has no default skill.
         """
         if prompt is not None:
             agent.system_prompt = prompt
         if tools is not None:
             agent.configured_tools = tools
             agent.allowed_tool_names = [tool.name for tool in tools]
+        if skill is not None:
+            agent.default_skill = skill
 
 
 # Injection bundle

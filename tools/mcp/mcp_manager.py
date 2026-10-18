@@ -4,6 +4,9 @@ from config.config import Config
 from tools.mcp.client import MCPClient, MCPServerStatus
 from tools.mcp.mcp_tool import MCPTool
 from tools.registry import ToolRegistry
+from utils.logging_config import get_logger
+
+logger = get_logger(__name__)
 
 
 class MCPManager:
@@ -65,7 +68,7 @@ class MCPManager:
 
             for result in results:
                 if isinstance(result, Exception):
-                    print(f"[MCP CONNECTION ERROR] {result}")
+                    logger.warning("MCP connection error: %s", result)
 
             self._auth_token = auth_token
             self._initialized = True

@@ -7,7 +7,6 @@ from pathlib import Path
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
-import logging
 
 from api.auth import decode_token
 from api.routers.assessment import router as assessment_router
@@ -24,12 +23,10 @@ from api.wsrouters.webs2s import router as webs2s_router
 from config.application_bootstrap import ApplicationBootstrap, RuntimeState
 from config.config import Config
 from customagents.factory import AgentFactory
+from utils.logging_config import get_logger, setup_logging
 
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
-)
-logger = logging.getLogger(__name__)
+setup_logging()
+logger = get_logger(__name__)
 
 # (router, required agents). A router is mounted only when *all* of its
 # required agents are enabled in agents.yaml.
@@ -135,7 +132,7 @@ def create_app(state: RuntimeState):
             request.state.token = token
 
         except Exception as e:
-            print("JWT ERROR:", str(e))
+            logger.warning("JWT middleware decode failed: %s", e)
 
             return JSONResponse(
                 status_code=401,

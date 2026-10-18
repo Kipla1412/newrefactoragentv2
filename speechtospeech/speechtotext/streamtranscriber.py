@@ -2,6 +2,11 @@ import asyncio
 import tempfile
 import os
 
+from utils.logging_config import get_logger, prompts_enabled
+
+logger = get_logger(__name__)
+
+
 class StreamTranscriber:
 
     def __init__(self, engine):
@@ -17,14 +22,15 @@ class StreamTranscriber:
         try:
             text = await self._transcribe(audio_bytes)
         except Exception as e:
-            print("STT error:", e)
+            logger.warning("STT error: %s", e)
             return None
 
 
         if text and text.strip():
             self.silence_count = 0
             self.buffer.append(text)
-            print("Partial:", text)
+            if prompts_enabled():
+                logger.debug("Partial transcript", extra={"fields": {"text": text}})
 
         else:
             self.silence_count += 1

@@ -5,8 +5,11 @@ import re
 from typing import Any, Awaitable, Callable
 from config.config import ApprovalPolicy
 from tools.base import ToolConfirmation
+from utils.logging_config import get_logger
 import uuid
 import asyncio
+
+logger = get_logger(__name__)
 
 class ApprovalDecision(str, Enum):
     APPROVED = "approved"
@@ -152,13 +155,14 @@ class ApprovalManager:
 
     async def request_confirmation(self, confirmation: ToolConfirmation) -> bool:
 
-        print("DEBUG: request_confirmation called")
+        logger.debug(
+            "Requesting user confirmation",
+            extra={"fields": {"tool": confirmation.tool_name}},
+        )
 
         if not self.confirmation_callback:
-            print("DEBUG: confirmation_callback is None")
+            logger.debug("No confirmation callback registered; approving by default")
             return True
-
-        print("DEBUG: calling confirmation_callback")
 
         # Check if callback is async or sync
         import inspect
@@ -169,7 +173,10 @@ class ApprovalManager:
             loop = asyncio.get_running_loop()
             result = await loop.run_in_executor(None, self.confirmation_callback, confirmation)
 
-        print("DEBUG: callback result:", result)
+        logger.debug(
+            "User confirmation resolved",
+            extra={"fields": {"tool": confirmation.tool_name, "approved": result}},
+        )
 
         return result
 

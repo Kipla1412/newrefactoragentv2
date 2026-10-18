@@ -3,15 +3,15 @@ from __future__ import annotations
 import asyncio
 import glob
 import json
-import logging
 from typing import Any, AsyncGenerator
 
 from sarvamai import AsyncSarvamAI
 
 from speechtospeech.hybrid.audio_manager import AudioBufferManager
 from speechtospeech.providers.stt.streamsarvam import SarvamStreamingSTTProvider
+from utils.logging_config import get_logger
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 
 class HybridSTTProvider:

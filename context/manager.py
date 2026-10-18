@@ -1,3 +1,5 @@
+from collections.abc import Iterator
+from contextlib import contextmanager
 from datetime import datetime
 from typing import Any
 from client.response import TokenUsage
@@ -37,6 +39,10 @@ class ContextManager:
     PRUNE_PROTECT_TOKENS = 40_000
     PRUNE_MINIMUM_TOKENS = 20_000
 
+    # Heading used when active skill instructions are injected into the system
+    # message. Matches the "# Section" style used by prompts.system.
+    SKILL_SECTION_HEADER = "# Active Skill"
+
     def __init__(
         self,
         config: Config,
@@ -46,6 +52,7 @@ class ContextManager:
     
         self._default_system_prompt = get_system_prompt(config, "", user_memory, tools)
         self._system_prompt = None
+        self._skill_instructions: str | None = None
         self.config = config
         self._model_name = self.config.model_name
         self._messages: list[MessageItem] = []
@@ -100,11 +107,12 @@ class ContextManager:
     def get_messages(self) -> list[dict[str, Any]]:
         messages = []
 
-        if self._system_prompt:
+        system_prompt = self.build_system_prompt()
+        if system_prompt:
             messages.append(
                 {
                     "role": "system",
-                    "content": self._system_prompt,
+                    "content": system_prompt,
                 }
             )
 
@@ -112,6 +120,28 @@ class ContextManager:
             messages.append(item.to_dict())
 
         return messages
+
+    def build_system_prompt(self) -> str | None:
+        """Return the system message content for the next LLM call.
+
+        Active skill instructions are appended to the configured system
+        prompt, so they are delivered as part of the existing system message
+        rather than as a separate one — this keeps a single system turn at the
+        head of the conversation and leaves history ordering untouched.
+
+        Returns:
+            The combined system prompt, or None when neither a system prompt
+            nor skill instructions are set.
+        """
+        parts = [self._system_prompt]
+
+        if self._skill_instructions and self._skill_instructions.strip():
+            parts.append(
+                f"{self.SKILL_SECTION_HEADER}\n\n{self._skill_instructions.strip()}"
+            )
+
+        combined = "\n\n".join(part for part in parts if part and part.strip())
+        return combined or None
 
     def needs_compression(self) -> bool:
         context_limit = self.config.model.context_window
@@ -212,6 +242,54 @@ I'll continue with the REMAINING tasks only, starting from where we left off."""
 
     def set_system_prompt(self, prompt: str) -> None:
         self._system_prompt = prompt
+
+    @property
+    def skill_instructions(self) -> str | None:
+        """Return the skill instructions currently active, if any."""
+        return self._skill_instructions
+
+    def set_skill_instructions(self, instructions: str | None) -> None:
+        """Activate, replace, or clear the active skill instructions.
+
+        Args:
+            instructions: Instruction text to activate, or None (or blank) to
+                clear. Passing new text replaces whatever was active.
+        """
+        if instructions is not None and not instructions.strip():
+            instructions = None
+
+        self._skill_instructions = instructions
+
+    def clear_skill_instructions(self) -> None:
+        """Remove the active skill instructions.
+
+        The system prompt, conversation history, and token usage are left
+        untouched, so the next LLM call looks exactly as it did before any
+        skill was activated.
+        """
+        self._skill_instructions = None
+
+    @contextmanager
+    def use_skill(self, instructions: str) -> Iterator[None]:
+        """Activate skill instructions for the duration of a block.
+
+        This is the supported way to scope a skill to a single request or
+        execution: the previously active instructions are restored on exit,
+        including when the block raises, so instructions cannot leak into a
+        later, unrelated request.
+
+        Args:
+            instructions: Instruction text to activate.
+
+        Yields:
+            None. The skill is active inside the block.
+        """
+        previous = self._skill_instructions
+        self._skill_instructions = instructions
+        try:
+            yield
+        finally:
+            self._skill_instructions = previous
 
     def clear(self) -> None:
         self._messages = []

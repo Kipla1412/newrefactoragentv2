@@ -40,6 +40,9 @@ from client.response import (
 )
 from config.config import Config
 from client.providers import ProviderCredentialResolver, default_resolver
+from utils.logging_config import describe_messages, get_logger, prompts_enabled
+
+logger = get_logger(__name__)
 
 # Errors that are worth retrying against the same model.
 _RETRYABLE_ERRORS = (
@@ -242,6 +245,23 @@ class LLMClient:
 
         candidates = self._candidate_models(model)
 
+        # Metadata only by default: this framework handles patient data, so
+        # message content is logged solely when LOG_PROMPTS is enabled.
+        logger.debug(
+            "LLM request",
+            extra={
+                "fields": {
+                    "candidates": candidates,
+                    "stream": stream,
+                    "tools": len(tools) if tools else 0,
+                    **describe_messages(messages),
+                }
+            },
+        )
+
+        if prompts_enabled():
+            logger.debug("LLM request content", extra={"fields": {"messages": messages}})
+
         kwargs: dict[str, Any] = {"messages": messages, "stream": stream}
         kwargs.update(kwargs_extra)
 
@@ -255,7 +275,11 @@ class LLMClient:
 
         last_error: Exception | None = None
 
-        for candidate in candidates:
+        for index, candidate in enumerate(candidates):
+            if index:
+                logger.warning(
+                    "Previous model failed; falling back to %s", candidate
+                )
             attempt = 0
             while True:
                 try:
@@ -281,6 +305,7 @@ class LLMClient:
                     last_error = exc
                     break
 
+        logger.error("All models failed. Last error: %s", last_error)
         yield StreamEvent(
             type=StreamEventType.ERROR,
             error=f"All models failed. Last error: {last_error}",

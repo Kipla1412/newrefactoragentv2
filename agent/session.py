@@ -16,9 +16,12 @@ from tools.mcp.mcp_manager import MCPManager
 from tools.discovery import ToolDiscoveryManager
 from tools.registry import create_default_registry
 from utils.mlflow_tracker import get_mlflow_tracker
+from utils.logging_config import get_logger
 from typing import List, Dict, Any, Optional
 import asyncio
 import mlflow
+
+logger = get_logger(__name__)
 
 
 class Session:
@@ -68,13 +71,16 @@ class Session:
 
     async def _request_user_confirmation(self, confirmation):
 
-        print("DEBUG: _request_user_confirmation START")
+        logger.debug(
+            "Tool confirmation requested",
+            extra={"fields": {"tool": confirmation.tool_name}},
+        )
         approval_id = str(uuid.uuid4())
 
         future = asyncio.get_running_loop().create_future()
 
         self.pending_approvals[approval_id] = future
-        print("WAITING APPROVAL:", approval_id)
+        logger.debug("Awaiting approval decision", extra={"fields": {"approval_id": approval_id}})
 
         # send approval event to frontend
         await self.event_queue.put({
@@ -90,7 +96,10 @@ class Session:
         try:
             # Code stops here until the /approve route calls future.set_result()
             approved = await future
-            print(f"DEBUG: Approval result received for {approval_id}: {approved}")
+            logger.debug(
+                "Approval decision received",
+                extra={"fields": {"approval_id": approval_id, "approved": approved}},
+            )
             return approved
         finally:
             # Ensure we ALWAYS clean up the dictionary, even if there's an error
@@ -109,7 +118,9 @@ class Session:
                 future.set_result(approved)
                 return True
         
-        print(f"DEBUG: Could not find pending approval for ID: {approval_id}")
+        logger.warning(
+            "No pending approval found for id %s", approval_id
+        )
         return False
     
     @property
@@ -134,7 +145,17 @@ class Session:
             user_memory=self._load_memory(),
             tools=self.tool_registry.get_tools(),
         )
-        
+
+        logger.info(
+            "Session initialized",
+            extra={
+                "fields": {
+                    "session_id": self.session_id,
+                    "tools": len(self.tool_registry.get_tools()),
+                }
+            },
+        )
+
         # Setup MLflow run for this session (optional)
         if self.mlflow_tracker:
             try:
@@ -142,7 +163,7 @@ class Session:
                     mlflow.end_run()
                 self.mlflow_run = self.mlflow_tracker.start_run("initializing")
             except Exception as e:
-                print(f"Warning: MLflow tracking disabled: {e}")
+                logger.warning("MLflow tracking disabled: %s", e)
                 self.mlflow_run = None
         else:
 
@@ -251,7 +272,7 @@ class Session:
             self.mlflow_tracker.set_tag("agent_name", self.agent_name or "unknown")
 
         except Exception as e:
-            print(f"Warning: Failed to start MLflow run: {e}")
+            logger.warning("Failed to start MLflow run: %s", e)
             self.mlflow_run = None
 
 

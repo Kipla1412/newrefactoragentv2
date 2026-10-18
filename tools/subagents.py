@@ -4,9 +4,9 @@ from config.config import Config
 from tools.base import Tool, ToolInvocation, ToolResult
 from dataclasses import dataclass
 from pydantic import BaseModel, Field
-import logging
+from utils.logging_config import get_logger
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 class SubagentParams(BaseModel):
     goal: str = Field(

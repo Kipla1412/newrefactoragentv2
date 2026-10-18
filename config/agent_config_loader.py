@@ -27,6 +27,8 @@ from config.config import Config, ModelConfig
 from config.schemas import ApplicationAgentConfig, AgentYaml
 from registries.model_registry import ModelRegistry
 from registries.prompt_registry import PromptRegistry
+from skills import SkillRegistry
+from skills.errors import SkillError
 from utils.errors import ConfigError
 
 AGENTS_YAML_FILE = "agents.yaml"
@@ -95,6 +97,7 @@ class AgentConfigLoader:
         app_config = self._load_application_yaml()
         models = self._load_models(app_config.get("models", {}))
         prompt_registry = PromptRegistry.from_builtin()
+        skill_registry = SkillRegistry.from_builtin()
 
         agent_files = self._discover_agent_config_files()
 
@@ -108,7 +111,9 @@ class AgentConfigLoader:
                     f"Agent '{name}' is enabled but has no config.yaml "
                     f"under {self._customagents_dir}"
                 )
-            self._validate_references(name, agent_yaml, models, prompt_registry)
+            self._validate_references(
+                name, agent_yaml, models, prompt_registry, skill_registry
+            )
             enabled_agents[name] = agent_yaml
 
         self.resolved = ResolvedAgentConfig(
@@ -245,6 +250,7 @@ class AgentConfigLoader:
         agent_yaml: AgentYaml,
         models: dict[str, ModelConfig],
         prompt_registry: PromptRegistry,
+        skill_registry: SkillRegistry,
     ) -> None:
         """Validate all registry references for an agent.
 
@@ -253,6 +259,7 @@ class AgentConfigLoader:
             agent_yaml: The agent's resolved configuration.
             models: Loaded model definitions.
             prompt_registry: Prompt registry to validate against.
+            skill_registry: Skill registry to validate against.
 
         Raises:
             ConfigError: If any reference is unknown.
@@ -271,6 +278,20 @@ class AgentConfigLoader:
             raise ConfigError(
                 f"Agent '{agent_name}' references unknown prompt '{agent_yaml.prompt}'"
             )
+
+        if agent_yaml.skill is not None:
+            try:
+                available = skill_registry.has(agent_yaml.skill)
+            except SkillError as exc:
+                raise ConfigError(
+                    f"Agent '{agent_name}' skill library is invalid: {exc}"
+                ) from exc
+
+            if not available:
+                raise ConfigError(
+                    f"Agent '{agent_name}' references unknown skill "
+                    f"'{agent_yaml.skill}'"
+                )
 
         # Tool references are resolved through the existing ToolRegistry at
         # factory time; startup validation catches empty references and leaves

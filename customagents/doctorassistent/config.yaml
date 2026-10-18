@@ -1,5 +1,6 @@
 name: doc
 model: clinical_model
 prompt: doc
+skill: clinical-followup-questions
 tools:
   - memory

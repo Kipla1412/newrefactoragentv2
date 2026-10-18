@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import asyncio
-import logging
 from typing import Any, AsyncGenerator
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
@@ -10,8 +9,9 @@ from api.auth import decode_token
 from customagents.factory import AgentFactory
 from customagents.sessionmanager import SessionManager
 from agent.events import AgentEventType
+from utils.logging_config import get_logger
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 router = APIRouter()
 

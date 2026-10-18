@@ -29,6 +29,21 @@ class ConversationRequest(BaseModel):
     }
 
 
+class DoctorAgentRequest(ConversationRequest):
+    """Doctor assistant request, with optional explicit skill selection.
+
+    Extends the shared conversation request so the SOAP endpoint's contract is
+    unchanged. ``skill`` names a skill from the skills registry that is
+    activated for this request only.
+    """
+
+    skill: Optional[str] = Field(
+        default=None,
+        description="Name of a skill to activate for this request only",
+        json_schema_extra={"example": "clinical-followup-questions"},
+    )
+
+
 class ErrorResponse(BaseModel):
     error: str
     details: str | None = None

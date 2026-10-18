@@ -6,7 +6,7 @@ from fastapi import APIRouter, Depends, Request
 
 from agent.events import AgentType
 from api.auth import require_permission
-from api.routers.schemas import ConversationRequest, DoctorAgentResponse, ErrorResponse
+from api.routers.schemas import DoctorAgentRequest, DoctorAgentResponse, ErrorResponse
 from customagents.factory import AgentFactory
 
 router = APIRouter(prefix="/agent")
@@ -39,7 +39,7 @@ Requires valid user session with consultagent:chat permission.
     },
     dependencies=[Depends(require_permission("consultagent", "chat"))]
 )
-async def recommend_questions_api(request: Request, data: ConversationRequest):
+async def recommend_questions_api(request: Request, data: DoctorAgentRequest):
 
     if not data.conversation:
         return {"questions": [], "status": "empty_input"}
@@ -53,7 +53,7 @@ async def recommend_questions_api(request: Request, data: ConversationRequest):
     try:
         # await agent.session.initialize()
 
-        result = await agent.recommend_questions(data.conversation)
+        result = await agent.recommend_questions(data.conversation, skill=data.skill)
 
         return result
 

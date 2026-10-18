@@ -1,13 +1,14 @@
 from __future__ import annotations
 
 import asyncio
-import logging
 import os
 import tempfile
 import uuid
 import wave
 
-logger = logging.getLogger(__name__)
+from utils.logging_config import get_logger
+
+logger = get_logger(__name__)
 
 
 class AudioBufferManager:

@@ -2,6 +2,11 @@ from __future__ import annotations
 import asyncio
 from sarvamai import AsyncSarvamAI
 
+from utils.logging_config import get_logger
+
+logger = get_logger(__name__)
+
+
 class SarvamStreamingTTSProvider:
 
     def __init__(
@@ -25,8 +30,8 @@ class SarvamStreamingTTSProvider:
         """Establishes a clean connection state, closing old contexts safely."""
         async with self.lock:
             await self._cleanup()
-            
-            print("Connecting to Sarvam TTS WebSocket...")
+
+            logger.info("Connecting to Sarvam TTS")
             try:
                 self.ctx = self.client.text_to_speech_streaming.connect(
                     model=self.model,
@@ -40,9 +45,9 @@ class SarvamStreamingTTSProvider:
                     speech_sample_rate=24000,
                     output_audio_codec="wav",
                 )
-                print("TTS Connected & Configured")
+                logger.info("TTS connected and configured")
             except Exception as e:
-                print(f"Failed to build TTS socket connection layout: {e}")
+                logger.warning("Failed to build TTS socket connection layout: %s", e)
                 await self._cleanup()
 
     async def reconnect(self):
@@ -57,8 +62,8 @@ class SarvamStreamingTTSProvider:
             await self._cleanup()
 
         await self.connect()
-                
-   
+
+
     # Add this method to your SarvamStreamingTTSProvider
     async def update_config(self, language_code: str, speaker: str):
         self.language_code = language_code
@@ -81,13 +86,13 @@ class SarvamStreamingTTSProvider:
     async def send_text(self, text: str):
         if not text.strip():
             return
-        
+
         try:
             await self.ensure_connected()
             if self.socket:
                 await self.socket.convert(text)
         except Exception as e:
-            print(f"Convert error, attempting reconnection recovery: {e}")
+            logger.warning("Convert error, attempting reconnection recovery: %s", e)
             await self.connect()
             if self.socket:
                 await self.socket.convert(text)
@@ -97,20 +102,20 @@ class SarvamStreamingTTSProvider:
             await self.ensure_connected()
             if not self.socket:
                 return None
-                
+
             res = await self.socket.recv()
-            
+
             # Catch raw API error drops gracefully
             if res and getattr(res, "type", None) == "error":
                 code = getattr(res.data, "code", None) if hasattr(res, "data") else None
                 if code == 408:
-                    print("Caught idle session timeout notification (408).")
+                    logger.info("TTS idle session timeout notification received (408)")
                     await self.close()
             return res
         except Exception as e:
-            print(f"Debug TTS Recv Notice: {e}")
+            logger.warning("TTS receive error: %s", e)
             if "closed" in str(e).lower() or "1000" in str(e) or "none" in str(e).lower():
-                print("Connection truly dead. Cleaning references.")
+                logger.info("TTS connection dead, cleaning up references")
                 await self.close()
             return None
 
@@ -136,5 +141,4 @@ class SarvamStreamingTTSProvider:
         """Safely cleans up execution variables and exits active connection contexts."""
         async with self.lock:
             await self._cleanup()
-            print("TTS Connection Reference Cleared")
-
+            logger.info("TTS connection reference cleared")

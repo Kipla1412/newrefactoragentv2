@@ -2,6 +2,11 @@
 import requests
 import base64
 
+from utils.logging_config import get_logger
+
+logger = get_logger(__name__)
+
+
 class HuggingFaceSTTProvider:
 
     def __init__(self, api_key: str, model: str =  "openai/whisper-large-v3", endpoint_url: str | None = None, debug=False):
@@ -9,7 +14,11 @@ class HuggingFaceSTTProvider:
         self.model = model
         self.debug = debug
 
-        print("HF API KEY RECEIVED:", api_key)
+        # Never log the key itself — only whether one was supplied.
+        logger.debug(
+            "HuggingFace STT provider configured",
+            extra={"fields": {"model": self.model, "has_api_key": bool(api_key)}},
+        )
 
         # Use HF router (IMPORTANT)
         self.url = (
@@ -27,7 +36,10 @@ class HuggingFaceSTTProvider:
     def transcribe(self, audio_bytes: bytes) -> str:
 
         if self.debug:
-            print(f"[HF STT] Model={self.model} Bytes={len(audio_bytes)}")
+            logger.debug(
+                "HuggingFace STT request",
+                extra={"fields": {"model": self.model, "bytes": len(audio_bytes)}},
+            )
 
         # encode audio
         audio_base64 = base64.b64encode(audio_bytes).decode("utf-8")

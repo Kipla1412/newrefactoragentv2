@@ -3,6 +3,10 @@ import base64
 from typing import AsyncGenerator
 from sarvamai import AsyncSarvamAI
 
+from utils.logging_config import get_logger
+
+logger = get_logger(__name__)
+
 
 class SarvamStreamingSTTProvider:
 
@@ -40,7 +44,7 @@ class SarvamStreamingSTTProvider:
             high_vad_sensitivity=True,
         )
         self.socket = await self.ctx.__aenter__()
-        print(f"Sarvam STT Connected (language={language_code})")
+        logger.info("Sarvam STT connected", extra={"fields": {"language": language_code}})
 
     async def connect(self):
         await self._connect_with(self.language_code)
@@ -49,9 +53,9 @@ class SarvamStreamingSTTProvider:
         """Reconnect STT with a new language code for better accuracy."""
         if language_code == self.language_code:
             return
-        print(f"[STT] Switching language to {language_code}...")
+        logger.info("Switching STT language", extra={"fields": {"language": language_code}})
         await self._connect_with(language_code)
-        print(f"[STT] Language switch to {language_code} complete")
+        logger.info("STT language switch complete", extra={"fields": {"language": language_code}})
 
     async def send_audio(self, audio_bytes: bytes):
         if not audio_bytes or self.socket is None:
@@ -61,7 +65,7 @@ class SarvamStreamingSTTProvider:
             audio_b64 = base64.b64encode(audio_bytes).decode("utf-8")
             await self.socket.transcribe(audio=audio_b64)
         except Exception as e:
-            print(f"STT Write Error: {e}")
+            logger.warning("STT write error: %s", e)
             self.socket = None
 
     async def stream_transcripts(self) -> AsyncGenerator[dict, None]:
@@ -80,7 +84,7 @@ class SarvamStreamingSTTProvider:
                         "language": response_lang or self.language_code,
                     }
             except Exception as e:
-                print(f"STT Stream Read Error: {e}")
+                logger.warning("STT stream read error: %s", e)
                 break
 
     async def flush(self):
@@ -98,4 +102,4 @@ class SarvamStreamingSTTProvider:
                 pass
         self.ctx = None
         self.socket = None
-        print("Sarvam STT Closed")
+        logger.info("Sarvam STT closed")

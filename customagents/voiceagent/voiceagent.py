@@ -6,6 +6,9 @@ from agent.agent import Agent
 from agent.events import AgentEvent, AgentEventType, AgentType
 from client.response import StreamEventType
 from prompts.system import get_system_prompt
+from utils.logging_config import get_logger, prompts_enabled
+
+logger = get_logger(__name__)
 
 if TYPE_CHECKING:
     from client.llm_client import LLMClient
@@ -60,7 +63,7 @@ async def translate_text(
                 translated = event.text_delta.content.strip()
                 return translated if translated else text
     except Exception as e:
-        print(f"Translation error: {e}")
+        logger.warning("Translation failed: %s", e)
 
     return text
 
@@ -121,25 +124,31 @@ class VoiceSession:
                 target_language="en", source_language=source_language
             )
         except Exception as e:
-            print(f"[TRANSLATE] Tamil → English failed: {e}")
+            logger.warning("Tamil → English translation failed: %s", e)
             return text
 
-        print(f"[TRANSLATE] '{text[:50]}...' -> '{result[:50]}...' (ta→en)")
+        if prompts_enabled():
+            logger.debug("Translated %r → %r (ta→en)", text[:50], result[:50])
+
         return result
 
     async def _translate_to(self, text: str, target_language: str) -> str:
         if not target_language or target_language in ("en-IN", "en", "", None):
-            print(f"[TRANSLATE] Skipped — target_language={target_language}")
+            logger.debug("Translation skipped: target_language=%s", target_language)
             return text
         if target_language not in ("ta-IN", "ta"):
-            print(f"[TRANSLATE] Unsupported output language '{target_language}' — sending English")
+            logger.warning(
+                "Unsupported output language %r — sending English", target_language
+            )
             return text
 
         result = await translate_text(
             self.agent.session.client, text,
             target_language=target_language, source_language="en"
         )
-        print(f"[TRANSLATE] '{text[:50]}...' -> '{result[:50]}...' (lang={target_language})")
+        if prompts_enabled():
+            logger.debug("Translated %r → %r (lang=%s)", text[:50], result[:50], target_language)
+
         return result
 
     async def _drain_tts(self):
@@ -157,7 +166,7 @@ class VoiceSession:
                     if res.data.audio:
                         yield base64.b64decode(res.data.audio)
             except Exception as e:
-                print(f"TTS Drain Error: {e}")
+                logger.warning("TTS drain error: %s", e)
                 break
 
     async def process_transcript_to_audio(
@@ -166,7 +175,13 @@ class VoiceSession:
         target_language: str = "en-IN",
         source_language: str = "en-IN",
     ):
-        print(f"[PROCESS] target_language={target_language} source_language={source_language} transcript='{transcript[:50]}...'")
+        if prompts_enabled():
+            logger.debug(
+                "Processing transcript to audio (%r → %r, transcript=%r)",
+                source_language,
+                target_language,
+                transcript[:50],
+            )
 
         # Start each synthesis turn with a fresh TTS connection. Sarvam
         # finalizes the session after a flush+drain, so reusing the same

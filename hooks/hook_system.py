@@ -7,6 +7,9 @@ import tempfile
 from typing import Any
 from config.config import Config, HookConfig, HookTrigger
 from tools.base import ToolResult
+from utils.logging_config import get_logger
+
+logger = get_logger(__name__)
 
 
 class HookSystem:
@@ -33,7 +36,7 @@ class HookSystem:
                 finally:
                     os.unlink(script_path)
         except Exception as e:
-            print(e)
+            logger.warning("Hook execution failed: %s", e)
 
     async def _run_command(
         self,

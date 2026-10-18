@@ -1,15 +1,22 @@
 from __future__ import annotations
+from collections.abc import Iterator
+from contextlib import contextmanager
 from typing import AsyncGenerator, Awaitable, Callable
 from agent.events import AgentEvent, AgentEventType, AgentType
 from agent.session import Session
 from client.response import StreamEventType, TokenUsage, ToolCall, ToolResultMessage, parse_tool_call_arguments
 from config.config import Config
 from prompts.system import create_loop_breaker_prompt
+from skills import Skill, SkillRegistry, default_skill_registry
 from tools.base import ToolConfirmation
+from utils.errors import AgentError
+from utils.logging_config import get_logger
 import json
 import time
 from datetime import datetime
 import asyncio
+
+logger = get_logger(__name__)
 
 class Agent:
     def __init__(
@@ -18,12 +25,16 @@ class Agent:
         system_prompt: str,
         agent_type: AgentType,
         confirmation_callback: Callable[[ToolConfirmation], bool] | None = None,
+        skill_registry: SkillRegistry | None = None,
     ):
         self.config = config
         self.system_prompt = system_prompt
         self.session: Session = Session(self.config)
         self.agent_type = agent_type
         self.session.agent_name = self.__class__.__name__
+        # Reusable source of per-request instruction sets (skills). Injected so
+        # tests — and alternative skill libraries — can be swapped in.
+        self.skill_registry: SkillRegistry = skill_registry or default_skill_registry()
         # Override this on subclasses that must use tools on every turn
         # (e.g. document retrieval must search before answering).
         self.force_tool_choice = False
@@ -32,9 +43,74 @@ class Agent:
         # Tools resolved from configuration by the AgentFactory. None means
         # no per-agent tool configuration was applied.
         self.configured_tools: list | None = None
+        # Skill resolved from configuration by the AgentFactory. Used when a
+        # caller does not name one, so an agent "knows" its own skill without
+        # the request having to carry it.
+        self.default_skill: str | None = None
         
         if confirmation_callback is not None:
             self.session.approval_manager.confirmation_callback = confirmation_callback
+
+    def active_skill(self, skill: str | None) -> str | None:
+        """Resolve which skill to activate for a call.
+
+        This is how an agent "knows" its skill: the configured
+        :attr:`default_skill` is used unless the caller overrides it.
+
+        Args:
+            skill: Skill name from the caller. ``None`` means "use this
+                agent's configured skill"; an empty string means "no skill
+                for this call", which is how a caller opts out of the default.
+
+        Returns:
+            The skill name to activate, or None for no skill.
+        """
+        if skill is None:
+            return self.default_skill
+        return skill or None
+
+    @contextmanager
+    def use_skill(self, skill: str | None) -> Iterator[Skill | None]:
+        """Activate a named skill for the duration of a block.
+
+        The reusable entry point for skills: any agent can wrap part of its
+        execution in this block, and the skill's instructions are handed to the
+        ContextManager, which appends them to the system message for the
+        current request.
+
+        Activation is scoped — whatever was active before is restored on exit,
+        including when the block raises — so instructions cannot leak into a
+        later request or a concurrent execution.
+
+        Args:
+            skill: Skill name from :attr:`skill_registry`, or None for no
+                skill.
+
+        Yields:
+            The loaded skill, or None when no skill was requested.
+
+        Raises:
+            AgentError: If the session context is not initialized yet.
+            SkillNotFoundError: If the requested skill is unknown.
+            SkillValidationError: If the skill file is malformed.
+        """
+        if not skill:
+            yield None
+            return
+
+        if not self.session.context_manager:
+            raise AgentError(
+                "Session must be initialized before activating a skill "
+                "(call session.initialize() first)."
+            )
+
+        loaded = self.skill_registry.load(skill)
+        logger.debug(
+            "Skill activated for this execution",
+            extra={"fields": {"skill": loaded.name, "agent": self.agent_type.value}},
+        )
+        with self.session.context_manager.use_skill(loaded.instructions):
+            yield loaded
 
     async def run(self, message: str):
         
@@ -79,8 +155,16 @@ class Agent:
                 event = await self.session.event_queue.get()
 
                 data = event["data"]
-                
-                print("DEBUG: agent emitting approval event", data)
+
+                logger.debug(
+                    "Approval request pending",
+                    extra={
+                        "fields": {
+                            "approval_id": data.get("approval_id"),
+                            "tool": data.get("tool_name"),
+                        }
+                    },
+                )
 
                 yield AgentEvent.approval_request(
                     approval_id=data["approval_id"],
@@ -202,7 +286,15 @@ class Agent:
                     args=tool_call.arguments,
                 )
 
-                print(f"DEBUG: Tool {tool_call.name} called with args: {tool_call.arguments}")
+                logger.debug(
+                    "Tool call started",
+                    extra={
+                        "fields": {
+                            "tool": tool_call.name,
+                            "argument_keys": sorted((tool_call.arguments or {}).keys()),
+                        }
+                    },
+                )
 
                 invocation_task = asyncio.create_task(
                     self.session.tool_registry.invoke(
@@ -235,6 +327,16 @@ class Agent:
 
                 result = await invocation_task
 
+                logger.debug(
+                    "Tool call finished",
+                    extra={
+                        "fields": {
+                            "tool": tool_call.name,
+                            "success": result.success,
+                        }
+                    },
+                )
+
                 yield AgentEvent.tool_call_complete(
                     tool_call.call_id,
                     tool_call.name,
@@ -266,6 +368,7 @@ class Agent:
                 self.session.context_manager.add_usage(usage)
 
             self.session.context_manager.prune_tool_outputs()
+        logger.error("Maximum turns (%s) reached", max_turns)
         yield AgentEvent.agent_error(f"Maximum turns ({max_turns}) reached")
 
 

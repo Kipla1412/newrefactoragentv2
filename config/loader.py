@@ -8,9 +8,9 @@ from dotenv import load_dotenv
 
 from config.config import Config
 from utils.errors import ConfigError
-import logging
+from utils.logging_config import get_logger
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 CONFIG_FILE_NAME = "config.toml"
 AGENTS_YAML_FILE_NAME = "agents.yaml"
 

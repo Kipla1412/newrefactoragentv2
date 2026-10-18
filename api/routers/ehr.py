@@ -14,12 +14,14 @@ router = APIRouter(prefix="/agent")
 class MCPRequest(BaseModel):
     message: str
     session_id: str | None = None
+    skill: str | None = None
     
     model_config = {
         "json_schema_extra": {
             "example": {
                 "message": "Show medications for patient 12345",
-                "session_id": "session-123"
+                "session_id": "session-123",
+                "skill": "ehr-fhir-retrieval",
             }
         }
     }
@@ -138,7 +140,7 @@ async def mcp_chat(req: MCPRequest, request: Request):
 
     async def event_stream():
 
-        async for event in agent.run(req.message):
+        async for event in agent.run(req.message, skill=req.skill):
 
             event_type = (
                 event.type.value

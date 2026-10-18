@@ -1,5 +1,10 @@
 import requests
 
+from utils.logging_config import get_logger
+
+logger = get_logger(__name__)
+
+
 class OpenAISTTProvider:
     """
     OpenAI Whisper / audio transcription provider
@@ -19,7 +24,7 @@ class OpenAISTTProvider:
     def transcribe(self, audio_bytes: bytes) -> str:
 
         if self.debug:
-            print(f"[STT] Sending {len(audio_bytes)} bytes")
+            logger.debug("Sending %d bytes to OpenAI STT", len(audio_bytes))
 
         files = {
             "file": ("audio.wav", audio_bytes, "audio/wav")
@@ -58,5 +63,3 @@ class OpenAISTTProvider:
 
     def transcribe_chunk(self, audio_bytes: bytes) -> str:
         return self.transcribe(audio_bytes)
-
-    

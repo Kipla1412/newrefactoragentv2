@@ -1,14 +1,14 @@
 from __future__ import annotations
 
 import base64
-import logging
 from pathlib import Path
 
 from sarvamai import AsyncSarvamAI
 
 from .base import BaseTTSProvider
+from utils.logging_config import get_logger
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 
 class SarvamTTSProvider(BaseTTSProvider):

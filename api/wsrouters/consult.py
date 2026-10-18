@@ -1,6 +1,5 @@
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 import asyncio
-import logging
 import base64
 import re
 import time
@@ -11,8 +10,9 @@ from speechtospeech.providers.stt.streamsarvam import SarvamStreamingSTTProvider
 from speechtospeech.providers.tts.streamsarvam import SarvamStreamingTTSProvider
 
 from api.auth import decode_token
+from utils.logging_config import get_logger, prompts_enabled
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 router = APIRouter()
 
 
@@ -66,7 +66,7 @@ async def audio_stream(ws: WebSocket):
         return
 
     await ws.accept()
-    print("Voice Session Started")
+    logger.info("Voice session started")
 
     user_id = str(user.get("id", "unknown_user"))
     session_id = f"{user_id}_{hex(id(ws))}"
@@ -127,7 +127,7 @@ async def audio_stream(ws: WebSocket):
 
     voice_session = VoiceSession(agent=agent, tts=tts)
 
-    print("Pre-warming streaming providers...")
+    logger.info("Pre-warming streaming providers")
     await asyncio.gather(
         stt.connect(),
         tts.connect()
@@ -182,9 +182,10 @@ async def audio_stream(ws: WebSocket):
 
                 # Flush accumulated logs after stream ends
                 if text_buffer.strip():
-                    print(f"[WS → Client] {{ type: \"text\", text: \"{text_buffer.strip()}\" }}")
+                    if prompts_enabled():
+                        logger.debug("Assistant text", extra={"fields": {"text": text_buffer.strip()}})
                 if audio_buffer_len > 0:
-                    print(f"[WS → Client] {{ type: \"audio\", audio: \"<b64 {audio_buffer_len} bytes>\" }}")
+                    logger.debug("Assistant audio", extra={"fields": {"bytes": audio_buffer_len}})
 
             except asyncio.CancelledError:
                 logger.info("Response generation task explicitly cancelled.")
@@ -220,7 +221,10 @@ async def audio_stream(ws: WebSocket):
                 elif unicode_detected:
                     detected = unicode_detected
                     detection_source = "unicode"
-                    print(f"[LANG] Sarvam returned '{stt_language}', using Unicode fallback: {detected}")
+                    logger.info(
+                        "Sarvam language unusable, using Unicode fallback",
+                        extra={"fields": {"sarvam_language": stt_language, "detected": detected}},
+                    )
                 else:
                     detected = None
                     detection_source = "none"
@@ -229,29 +233,42 @@ async def audio_stream(ws: WebSocket):
                     # Non-English language detected — update TTS if language changed
                     if patient_language != detected:
                         patient_language = detected
-                        print(f"[LANG] Detected patient language: {patient_language} (source={detection_source})")
+                        logger.info(
+                            "Patient language detected",
+                            extra={"fields": {"language": patient_language, "source": detection_source}},
+                        )
                         try:
-                            print(f"[TTS] Updating TTS to {patient_language}...")
+                            logger.info(
+                                "Updating TTS language",
+                                extra={"fields": {"language": patient_language}},
+                            )
                             await tts.update_config(
                                 language_code=patient_language,
                                 speaker=config.sarvam_speaker
                             )
-                            print(f"[TTS] Update complete")
+                            logger.info("TTS language updated")
                         except Exception as e:
                             logger.error(f"TTS update failed: {e}")
 
                     # Translate transcript to English for UI display
-                    print(f"[TRANSLATE] Translating transcript from {detected} to en...")
+                    logger.info(
+                        "Translating transcript to English",
+                        extra={"fields": {"source_language": detected}},
+                    )
                     english_text = await translate_text(
                         agent.session.client, raw_text,
                         target_language="en", source_language=detected
                     )
-                    print(f"[TRANSLATE] Result: '{raw_text[:40]}' -> '{english_text[:40]}'")
+                    if prompts_enabled():
+                        logger.debug(
+                            "Translation result",
+                            extra={"fields": {"source_text": raw_text[:40], "translated_text": english_text[:40]}},
+                        )
                 else:
                     # English text — reset TTS to English if it was switched
                     if patient_language not in ("en-IN", "en", None):
                         patient_language = "en-IN"
-                        print(f"[LANG] Patient switched to English, resetting TTS")
+                        logger.info("Patient switched to English, resetting TTS")
                         try:
                             await tts.update_config(
                                 language_code="en-IN",
@@ -261,12 +278,13 @@ async def audio_stream(ws: WebSocket):
                             logger.error(f"TTS reset failed: {e}")
                     elif patient_language is None:
                         patient_language = "en-IN"
-                        print(f"[LANG] Defaulting to en-IN")
+                        logger.info("Defaulting patient language to en-IN")
 
                     english_text = raw_text
 
-                print(f"USER ({user_id}): {english_text}")
-                print(f"[WS → Client] {{ type: \"transcript\", text: \"{english_text}\" }}")
+                logger.debug("User turn received", extra={"fields": {"user_id": user_id}})
+                if prompts_enabled():
+                    logger.debug("User transcript", extra={"fields": {"text": english_text}})
                 await safe_send_json({"type": "transcript", "text": english_text})
                 await transcript_queue.put(english_text)
 
@@ -281,7 +299,7 @@ async def audio_stream(ws: WebSocket):
 
                 try:
                     if active_response_task and not active_response_task.done():
-                        print("Interrupting active speaking block for new phrase...")
+                        logger.debug("Interrupting active speaking block for new phrase")
                         active_response_task.cancel()
                         try:
                             await active_response_task
@@ -316,7 +334,7 @@ async def audio_stream(ws: WebSocket):
             task.result()
 
     except WebSocketDisconnect:
-        print(f"Client {user_id} disconnected gracefully.")
+        logger.info("Client disconnected gracefully", extra={"fields": {"user_id": user_id}})
     except Exception as e:
         logger.exception(e)
         try:
@@ -351,4 +369,4 @@ async def audio_stream(ws: WebSocket):
                 await sessions[session_id].client.close()
             del sessions[session_id]
 
-        print("Voice Session Closed Safely")
+        logger.info("Voice session closed safely")

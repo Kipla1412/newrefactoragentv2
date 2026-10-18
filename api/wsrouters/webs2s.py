@@ -1,6 +1,5 @@
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 import asyncio
-import logging
 import base64
 import re
 import time
@@ -13,8 +12,9 @@ from speechtospeech.providers.stt.streamsarvam import SarvamStreamingSTTProvider
 from speechtospeech.providers.tts.streamsarvam import SarvamStreamingTTSProvider
 
 from api.auth import decode_token
+from utils.logging_config import get_logger, prompts_enabled
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 router = APIRouter()
 
 _SCRIPT_MAP = [
@@ -80,7 +80,7 @@ async def _voice_stream(ws: WebSocket, agent_type: str):
 
     await ws.accept()
     label = "Voice Intake" if agent_type == "voice_intake" else "Voice Consult"
-    print(f"{label} Session Started")
+    logger.info("Session started", extra={"fields": {"agent": agent_type}})
 
     user_id = str(user.get("id", "unknown_user"))
     config = ws.app.state.config
@@ -145,7 +145,7 @@ async def _voice_stream(ws: WebSocket, agent_type: str):
 
     voice_session = VoiceSession(agent=voice_agent, tts=tts)
 
-    print("Pre-warming streaming providers...")
+    logger.info("Pre-warming streaming providers")
     await asyncio.gather(stt.connect(), tts.connect())
 
     # Send the initial greeting and mark the agent ready for input.
@@ -218,9 +218,10 @@ async def _voice_stream(ws: WebSocket, agent_type: str):
                         })
 
                 if text_buffer.strip():
-                    print(f"[WS → Client] {{ type: \"text\", text: \"{text_buffer.strip()}\" }}")
+                    if prompts_enabled():
+                        logger.debug("Assistant text", extra={"fields": {"text": text_buffer.strip()}})
                 if audio_buffer_len > 0:
-                    print(f"[WS → Client] {{ type: \"audio\", audio: \"<b64 {audio_buffer_len} bytes>\" }}")
+                    logger.debug("Assistant audio", extra={"fields": {"bytes": audio_buffer_len}})
 
                 if not ended:
                     await safe_send_json({"type": "status", "status": "ready"})
@@ -261,7 +262,10 @@ async def _voice_stream(ws: WebSocket, agent_type: str):
                 if detected:
                     if patient_language != detected:
                         patient_language = detected
-                        print(f"[LANG] Detected patient language: {patient_language} (source={detection_source})")
+                        logger.info(
+                            "Patient language detected",
+                            extra={"fields": {"language": patient_language, "source": detection_source}},
+                        )
                         try:
                             await tts.update_config(
                                 language_code=patient_language,
@@ -271,7 +275,12 @@ async def _voice_stream(ws: WebSocket, agent_type: str):
                             logger.error(f"TTS update failed: {e}")
 
                 source_language = detected
-                print(f"USER ({user_id}): {raw_text} (final={is_final})")
+                logger.debug(
+                    "User turn received",
+                    extra={"fields": {"user_id": user_id, "is_final": is_final}},
+                )
+                if prompts_enabled():
+                    logger.debug("User transcript", extra={"fields": {"text": raw_text}})
                 await safe_send_json({"type": "transcript", "text": raw_text})
 
                 # Only final transcripts trigger an agent response. Partial
@@ -291,7 +300,7 @@ async def _voice_stream(ws: WebSocket, agent_type: str):
 
                 try:
                     if active_response_task and not active_response_task.done():
-                        print("Interrupting active speaking block for new phrase...")
+                        logger.debug("Interrupting active speaking block for new phrase")
                         active_response_task.cancel()
                         try:
                             await active_response_task
@@ -325,7 +334,7 @@ async def _voice_stream(ws: WebSocket, agent_type: str):
             task.result()
 
     except WebSocketDisconnect:
-        print(f"Client {user_id} disconnected gracefully.")
+        logger.info("Client disconnected gracefully", extra={"fields": {"user_id": user_id}})
     except Exception as e:
         logger.exception(e)
         try:
@@ -356,4 +365,4 @@ async def _voice_stream(ws: WebSocket, agent_type: str):
         if voice_agent and voice_agent.session and voice_agent.session.client:
             await voice_agent.session.client.close()
 
-        print(f"{label} Session Closed Safely")
+        logger.info("Session closed safely", extra={"fields": {"agent": agent_type}})

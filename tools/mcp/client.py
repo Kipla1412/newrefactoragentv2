@@ -6,7 +6,10 @@ from typing import Any
 from config.config import MCPServerConfig
 from fastmcp import Client
 from fastmcp.client.transports import SSETransport, StdioTransport, StreamableHttpTransport
+from utils.logging_config import get_logger
 import asyncio
+
+logger = get_logger(__name__)
 
 class MCPServerStatus(str, Enum):
     DISCONNECTED = "disconnected"
@@ -100,8 +103,7 @@ class MCPClient:
 
         except Exception as e:
             self.status = MCPServerStatus.ERROR
-            print(f"\n[MCP ERROR] {self.name}")
-            print(e)
+            logger.error("MCP server connection failed: %s (%s)", self.name, e)
             raise
 
     async def disconnect(self) -> None:
@@ -170,8 +172,7 @@ class MCPClient:
                             "is_error": False,
                         }
                 
-                print(f"\n[MCP TOOL ERROR] {tool_name}")
-                print(str(e))
+                logger.error("MCP tool call failed: %s (%s)", tool_name, e)
 
                 return {
                     "output": f"MCP tool failed: {str(e)}",

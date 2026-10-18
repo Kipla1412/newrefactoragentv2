@@ -11,12 +11,13 @@ from prompts.system import get_system_prompt
 
 class EHRAgent(Agent):
 
-    def __init__(self, config, session=None):
+    def __init__(self, config, session=None, skill_registry=None):
 
         super().__init__(
             config=config,
             system_prompt=EHR_AGENT_PROMPT,
             agent_type=AgentType.EHR,
+            skill_registry=skill_registry,
         )
 
         # optional shared session
@@ -25,7 +26,8 @@ class EHRAgent(Agent):
 
     async def run(
         self,
-        message: str = ""
+        message: str = "",
+        skill: str | None = None,
     ) -> AsyncGenerator[AgentEvent, None]:
 
         # initialize session
@@ -55,9 +57,12 @@ class EHRAgent(Agent):
 
         try:
 
-            # use inherited framework loop
-            async for event in self._agentic_loop():
-                yield event
+            # Optional reusable skill, scoped to this request only. Falls back
+            # to the skill this agent configures in its own config.yaml.
+            with self.use_skill(self.active_skill(skill)):
+                # use inherited framework loop
+                async for event in self._agentic_loop():
+                    yield event
 
         except Exception as e:
 

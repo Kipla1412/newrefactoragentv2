@@ -1,14 +1,14 @@
 from __future__ import annotations
 
 import asyncio
-import logging
 import time
 from typing import Any, AsyncGenerator, Callable, Awaitable
 
 from speechtospeech.hybrid.stt_provider import HybridSTTProvider
 from speechtospeech.webvad import VoiceActivityDetector
+from utils.logging_config import get_logger, prompts_enabled
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 
 class DiarizationOrchestrator:
@@ -196,9 +196,11 @@ async def _default_partial_printer(transcript: dict[str, Any]) -> None:
     language = transcript.get("language")
 
     if language and language not in ("unknown", "en-IN", "en"):
-        print(f"\n[LANG] {language}")
+        logger.info("Language detected", extra={"fields": {"language": language}})
 
     if is_final:
-        print(f"[TRANSCRIPT] {text[:200]}")
+        if prompts_enabled():
+            logger.debug("Final transcript", extra={"fields": {"text": text[:200]}})
     else:
-        print(f"\r[DRAFT] {text[:120]}", end="", flush=True)
+        if prompts_enabled():
+            logger.debug("Partial transcript", extra={"fields": {"text": text[:120]}})

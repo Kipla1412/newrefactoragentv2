@@ -165,13 +165,17 @@ class AgentFactory:
         # 4. Construct, then apply the resolved overrides.
         agent = agent_class(agent_config, session=session)
         tools = components.tools.resolve(name, agent_yaml, agent_config, session)
-        components.overrides.apply(agent, prompt, tools)
+        # The agent's configured skill, so it knows what to activate when the
+        # caller does not name one.
+        default_skill = agent_yaml.skill if agent_yaml else None
+        components.overrides.apply(agent, prompt, tools, default_skill)
 
         return agent
 
    
     # Backward-compatible shim
-   
+
+    @classmethod
     def _resolve_tools(
         cls,
         agent_name: str,

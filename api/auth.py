@@ -2,6 +2,9 @@ from fastapi import HTTPException, status, Request
 from jwt.jwks_client import PyJWKClient
 import jwt
 from config.config import Config
+from utils.logging_config import get_logger
+
+logger = get_logger(__name__)
 
 config = Config()
 
@@ -21,7 +24,7 @@ def decode_token(token: str):
             options={"verify_aud": True},
         )
     except Exception as e:
-        print(f"JWT ERROR: {str(e)}")
+        logger.warning("JWT decode failed: %s", e)
         raise
 
 async def get_current_user(request: Request):

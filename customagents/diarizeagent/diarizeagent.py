@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import asyncio
 import json
-import logging
 import re
 import time
 from typing import Any, AsyncGenerator, Callable, Awaitable
@@ -15,8 +14,9 @@ from customagents.voiceagent.voiceagent import translate_text
 from speechtospeech.hybrid.orchestrator import DiarizationOrchestrator
 from speechtospeech.hybrid.stt_provider import HybridSTTProvider, _relabel_segments
 from speechtospeech.webvad import VoiceActivityDetector
+from utils.logging_config import get_logger
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 
 class DiarizeAgent(Agent):

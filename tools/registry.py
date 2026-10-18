@@ -4,11 +4,11 @@ from config.config import Config
 from hooks.hook_system import HookSystem
 from safety.approval import ApprovalContext, ApprovalDecision, ApprovalManager
 from tools.base import Tool, ToolInvocation, ToolResult
-import logging
 from tools.builtin import get_all_builtin_tools
 from tools.subagents import SubagentTool, get_default_subagent_definitions
+from utils.logging_config import get_logger
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 
 class ToolRegistry:
@@ -133,8 +133,17 @@ class ToolRegistry:
                     return result
                 elif decision == ApprovalDecision.NEEDS_CONFIRMATION:
                     approved = await approval_manager.request_confirmation(confirmation)
-                    print("DEBUG approval decision:", decision)
-                    print("DEBUG approval approved:", approved)
+
+                    logger.debug(
+                        "Approval decision applied",
+                        extra={
+                            "fields": {
+                                "tool": name,
+                                "decision": getattr(decision, "value", str(decision)),
+                                "approved": approved,
+                            }
+                        },
+                    )
 
                     if not approved:
                         result = ToolResult.error_result("User rejected the operation")
