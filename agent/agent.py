@@ -47,6 +47,10 @@ class Agent:
         # caller does not name one, so an agent "knows" its own skill without
         # the request having to carry it.
         self.default_skill: str | None = None
+        # Human-readable name resolved from configuration by the AgentFactory,
+        # used for MLflow tagging and error messages. Only needed by agents
+        # that are not distinct classes (see GenericAgent).
+        self.configured_agent_name: str | None = None
         
         if confirmation_callback is not None:
             self.session.approval_manager.confirmation_callback = confirmation_callback
@@ -107,7 +111,14 @@ class Agent:
         loaded = self.skill_registry.load(skill)
         logger.debug(
             "Skill activated for this execution",
-            extra={"fields": {"skill": loaded.name, "agent": self.agent_type.value}},
+            extra={
+                "fields": {
+                    "skill": loaded.name,
+                    # A config-driven agent may carry a plain string rather than
+                    # an AgentType member.
+                    "agent": getattr(self.agent_type, "value", self.agent_type),
+                }
+            },
         )
         with self.session.context_manager.use_skill(loaded.instructions):
             yield loaded

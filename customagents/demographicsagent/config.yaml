@@ -1,0 +1,18 @@
+name: demographics
+model: clinical_model
+prompt: demographics
+skill: patient-demographics-summary
+
+# No tools key, on purpose — same reasoning as the EHR agent.
+#
+# The FHIR tools are MCP tools discovered at runtime and registered as
+# "<server>__<tool>" (e.g. fhir__get_patient), so they cannot be listed here.
+# `allowed_tool_names` is an exact-match allowlist, so naming any tool would
+# filter the FHIR tools OUT and the agent could not retrieve anything. Omitting
+# the key leaves the agent unrestricted.
+#
+# That is bounded in practice: the default registry contains no shell or
+# filesystem tools (only memory, wiki_search, neo4j_query), and the only
+# configured MCP server is the FHIR one. Per-request authorization is carried by
+# session.auth_token into the MCP connection, so the server enforces access.
+# See docs/customagents/demographics-agent.md.

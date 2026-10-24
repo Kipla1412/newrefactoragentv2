@@ -15,10 +15,12 @@ Adding an agent:
 
 from customagents.composition import AgentComponents
 from customagents.consultagent.consultagent import ConsultingAgent
+from customagents.demographicsagent.demographicsagent import DemographicsAgent
 from customagents.diarizeagent.diarizeagent import DiarizeAgent
 from customagents.doctorassistent.docagent import DoctorAssistantAgent
 from customagents.documentagent.documentagent import DocumentRetrievalAgent
 from customagents.ehragent.ehragent import EHRAgent
+from customagents.genericagent.genericagent import GenericAgent
 from customagents.medicalagent.medicalagent import MedicalAgent
 from customagents.pdfagent.pdfagent import PDFChatAgent
 from customagents.previsitagent.intakeagent import IntakeAgent
@@ -34,6 +36,9 @@ from agent.session import Session
 # Default name → class mapping. This is the ONE place concretions are
 # referenced; new agents are registered here (or at runtime through the
 # registry) without touching the factory logic.
+#
+# "generic" is the configuration-driven agent: any number of agents can share
+# it, each defined entirely by its own config.yaml. See GenericAgent.
 DEFAULT_AGENT_CLASSES: dict[str, type] = {
     "doc": DoctorAssistantAgent,
     "soap": SOAPAgent,
@@ -48,6 +53,8 @@ DEFAULT_AGENT_CLASSES: dict[str, type] = {
     "medical": MedicalAgent,
     "document_retrieval": DocumentRetrievalAgent,
     "pdf_chat": PDFChatAgent,
+    "demographics": DemographicsAgent,
+    "generic": GenericAgent,
 }
 
 
@@ -148,27 +155,35 @@ class AgentFactory:
         components = cls.components()
         name = agent_type.lower()
 
-        agent_class = components.types.get(name)
-        if not agent_class:
-            raise ValueError(f"Unknown agent type: {agent_type}. Check your registry.")
-
         # 1. Configuration (enforces the enabled flag).
         agent_yaml, model_registry = components.configs.provide(name, config, resolved)
 
-        # 2. Derived configuration: model, then framework settings.
+        # 2. Resolve the class. Normally it is registered under the agent's own
+        # name; a config-driven agent shares a class (e.g. "generic") and names
+        # it explicitly via agent_class, so no per-agent registration is needed.
+        agent_class = components.types.get(name)
+        if agent_class is None and agent_yaml is not None and agent_yaml.agent_class:
+            agent_class = components.types.get(agent_yaml.agent_class)
+        if not agent_class:
+            raise ValueError(f"Unknown agent type: {agent_type}. Check your registry.")
+
+        # 3. Derived configuration: model, then framework settings.
         agent_config = components.models.resolve(agent_yaml, config, model_registry)
         agent_config = components.settings.apply(agent_config, agent_yaml)
 
-        # 3. Prompt content.
+        # 4. Prompt content.
         prompt = components.prompts.resolve(name, agent_yaml, agent_config)
 
-        # 4. Construct, then apply the resolved overrides.
+        # 5. Construct, then apply the resolved overrides.
         agent = agent_class(agent_config, session=session)
         tools = components.tools.resolve(name, agent_yaml, agent_config, session)
-        # The agent's configured skill, so it knows what to activate when the
-        # caller does not name one.
+        # The agent's configured skill and display name, so a config-driven
+        # agent knows what to activate and how to identify itself.
         default_skill = agent_yaml.skill if agent_yaml else None
-        components.overrides.apply(agent, prompt, tools, default_skill)
+        configured_name = agent_yaml.agent_name if agent_yaml else None
+        components.overrides.apply(
+            agent, prompt, tools, default_skill, configured_name
+        )
 
         return agent
 

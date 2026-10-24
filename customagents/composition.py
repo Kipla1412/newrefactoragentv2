@@ -446,8 +446,9 @@ class AgentOverrideApplier:
         prompt: str | None,
         tools: list | None,
         skill: str | None = None,
+        agent_name: str | None = None,
     ) -> None:
-        """Apply the resolved prompt, tools, and default skill to an agent.
+        """Apply the resolved prompt, tools, skill, and name to an agent.
 
         Args:
             agent: The freshly constructed agent.
@@ -455,6 +456,8 @@ class AgentOverrideApplier:
             tools: Resolved tools, or None to leave tools unrestricted.
             skill: Skill name configured for this agent, or None when the
                 agent has no default skill.
+            agent_name: Display name configured for this agent, or None to
+                keep the agent's class name.
         """
         if prompt is not None:
             agent.system_prompt = prompt
@@ -463,6 +466,8 @@ class AgentOverrideApplier:
             agent.allowed_tool_names = [tool.name for tool in tools]
         if skill is not None:
             agent.default_skill = skill
+        if agent_name is not None:
+            agent.configured_agent_name = agent_name
 
 
 # Injection bundle

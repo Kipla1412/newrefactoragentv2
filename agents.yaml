@@ -69,6 +69,7 @@ agents:
   consult:             { enabled: true }
   intake:              { enabled: true }
   ehr:                 { enabled: true }
+  demographics:        { enabled: true }
   medical:             { enabled: true }
   diarize:             { enabled: true }
   voice_intake:        { enabled: true }

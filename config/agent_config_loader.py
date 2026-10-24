@@ -265,9 +265,19 @@ class AgentConfigLoader:
             ConfigError: If any reference is unknown.
         """
         if agent_name not in self._known_agents:
-            raise ConfigError(
-                f"Agent '{agent_name}' is enabled but not registered in AgentFactory"
-            )
+            # A config-driven agent shares a registered class rather than being
+            # registered under its own name; it names that class explicitly
+            # (see AgentYaml.agent_class).
+            if not agent_yaml.agent_class:
+                raise ConfigError(
+                    f"Agent '{agent_name}' is enabled but not registered in "
+                    "AgentFactory, and its config.yaml sets no 'agent_class'"
+                )
+            if agent_yaml.agent_class not in self._known_agents:
+                raise ConfigError(
+                    f"Agent '{agent_name}' references unknown agent_class "
+                    f"'{agent_yaml.agent_class}'"
+                )
 
         if agent_yaml.model is not None and agent_yaml.model not in models:
             raise ConfigError(

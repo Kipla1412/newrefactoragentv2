@@ -1,5 +1,9 @@
 # Agents
 
+> **Adding a new agent?** Start with
+> **[new-agent.md](new-agent.md)** — the step-by-step build guide, the
+> registration checklist, and the failure-mode table.
+
 Every agent in this framework is a class extending `agent.agent.Agent` plus a
 `config.yaml` describing what it uses. `AgentFactory` is the only code that
 knows the concrete classes; everything else refers to agents by their
@@ -51,6 +55,7 @@ Two response shapes:
 | `POST /api/agent/document` | `document_retrieval` | [document-retrieval-agent](document-retrieval-agent.md) |
 | `POST /api/agent/pdf-chat` | `pdf_chat` | [pdf-chat-agent](pdf-chat-agent.md) |
 | `POST /api/agent/mcpagent` | `ehr` | [ehr-agent](ehr-agent.md) |
+| `POST /api/agent/demographics` | `demographics` | [demographics-agent](demographics-agent.md) |
 | `/ws/...` (voice) | `voice_intake` **or** `voice_consult` | [voice-intake](voice-intake-agent.md), [voice-consult](voice-consult-agent.md) |
 | `/ws/...` (diarize) | `diarize` | [diarize-agent](diarize-agent.md) |
 | _(none)_ | `medical` | [medical-agent](medical-agent.md) |
@@ -71,6 +76,7 @@ Two response shapes:
 - **[medical-agent.md](medical-agent.md)** — wiki + Neo4j graph (no HTTP route)
 - **[document-retrieval-agent.md](document-retrieval-agent.md)** — RAG over indexed documents
 - **[ehr-agent.md](ehr-agent.md)** — FHIR tools over MCP
+- **[demographics-agent.md](demographics-agent.md)** — patient demographics summary (config-driven)
 - **[pdf-chat-agent.md](pdf-chat-agent.md)** — chat with an uploaded PDF
 
 ### Voice

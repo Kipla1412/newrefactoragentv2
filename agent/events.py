@@ -45,6 +45,8 @@ class AgentType(str, Enum):
    MEDICAL = "medical"
    DOCUMENT_RETRIEVAL = "document_retrieval"
    PDF_CHAT = "pdf_chat"
+   GENERIC = "generic"
+   DEMOGRAPHICS = "demographics"
 
 @dataclass
 class AgentEvent:

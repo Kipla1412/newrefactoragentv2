@@ -1,4 +1,5 @@
 from __future__ import annotations
+import asyncio
 import re
 import base64
 from typing import TYPE_CHECKING, AsyncGenerator
@@ -91,13 +92,35 @@ def build_patient_context_section(patient_context: str) -> str:
         "# Known Patient Information\n\n"
         "The patient record already contains the following information:\n\n"
         f"{context}\n\n"
-        "This information is already available. Do NOT ask the patient for any "
-        "of these details again. Treat them as already collected and continue "
-        "with the next missing item only."
+        "Treat every item above as ALREADY COLLECTED. Do NOT ask the patient "
+        "for any of these details again, in any wording. Do not ask for a "
+        "different field in order to re-derive them (for example, do not ask "
+        "for a date of birth when an age is already given). Skip the "
+        "corresponding intake questions and begin with the next item that is "
+        "genuinely missing."
     )
 
 
+def _drop_unanswered_user_message(session) -> None:
+    """Remove a trailing patient message that never received a reply.
+
+    When a turn is interrupted (the patient speaks again mid-answer),
+    ``agent.run()`` has already recorded the user's message but no assistant
+    reply is written. Leaving it in place makes the next turn two user messages
+    in a row, and the model then sees an unanswered question.
+    """
+    context_manager = getattr(session, "context_manager", None)
+    messages = getattr(context_manager, "_messages", None)
+    if not messages:
+        return
+    if getattr(messages[-1], "role", None) == "user":
+        messages.pop()
+
+
 class VoiceSession:
+
+    # A turn must never hang on a TTS socket that has stopped responding.
+    TTS_DRAIN_TIMEOUT_SECONDS = 20.0
 
     def __init__(self, agent, tts):
         self.agent = agent
@@ -128,7 +151,10 @@ class VoiceSession:
             return text
 
         if prompts_enabled():
-            logger.debug("Translated %r → %r (ta→en)", text[:50], result[:50])
+            logger.debug(
+                "Translated Tamil → English",
+                extra={"fields": {"source": text[:50], "result": result[:50]}},
+            )
 
         return result
 
@@ -146,8 +172,13 @@ class VoiceSession:
             self.agent.session.client, text,
             target_language=target_language, source_language="en"
         )
+
         if prompts_enabled():
-            logger.debug("Translated %r → %r (lang=%s)", text[:50], result[:50], target_language)
+            logger.debug(
+                "Translated English → %s",
+                target_language,
+                extra={"fields": {"source": text[:50], "result": result[:50]}},
+            )
 
         return result
 
@@ -155,19 +186,29 @@ class VoiceSession:
         """Drain audio until the TTS completion event (single-turn helper)."""
         while True:
             try:
-                res = await self.tts.receive_audio()
-                if res is None:
-                    break
-                if hasattr(res, "type") and res.type == "event":
-                    event_data = getattr(res, "data", None)
-                    if event_data and getattr(event_data, "event_type", None) == "final":
-                        break
-                if hasattr(res, "data") and res.data and hasattr(res.data, "audio"):
-                    if res.data.audio:
-                        yield base64.b64decode(res.data.audio)
+                res = await asyncio.wait_for(
+                    self.tts.receive_audio(),
+                    timeout=self.TTS_DRAIN_TIMEOUT_SECONDS,
+                )
+            except asyncio.TimeoutError:
+                # A stalled TTS socket must not hang the turn.
+                logger.warning(
+                    "TTS drain timed out after %ss", self.TTS_DRAIN_TIMEOUT_SECONDS
+                )
+                break
             except Exception as e:
                 logger.warning("TTS drain error: %s", e)
                 break
+
+            if res is None:
+                break
+            if hasattr(res, "type") and res.type == "event":
+                event_data = getattr(res, "data", None)
+                if event_data and getattr(event_data, "event_type", None) == "final":
+                    break
+            if hasattr(res, "data") and res.data and hasattr(res.data, "audio"):
+                if res.data.audio:
+                    yield base64.b64decode(res.data.audio)
 
     async def process_transcript_to_audio(
         self,
@@ -175,18 +216,34 @@ class VoiceSession:
         target_language: str = "en-IN",
         source_language: str = "en-IN",
     ):
+        logger.debug(
+            "Processing transcript to audio",
+            extra={
+                "fields": {
+                    "source_language": source_language,
+                    "target_language": target_language,
+                }
+            },
+        )
         if prompts_enabled():
             logger.debug(
-                "Processing transcript to audio (%r → %r, transcript=%r)",
-                source_language,
-                target_language,
-                transcript[:50],
+                "Incoming transcript", extra={"fields": {"text": transcript[:50]}}
             )
 
-        # Start each synthesis turn with a fresh TTS connection. Sarvam
-        # finalizes the session after a flush+drain, so reusing the same
-        # socket for the next turn produces no audio.
-        await self.tts.reconnect()
+        # Sarvam closes a synthesis session that sits idle, and the LLM turn
+        # routinely lasts long enough for that to happen — the log shows the
+        # socket dying between "TTS Connected" and the first chunk. So the
+        # socket is opened *lazily*, on the first chunk of speech, which
+        # guarantees it is alive when the text is sent. Because the turn is
+        # flushed once at the end, this connect overlaps with the rest of the
+        # LLM stream rather than delaying the audio.
+        tts_started = False
+
+        async def ensure_tts_started():
+            nonlocal tts_started
+            if not tts_started:
+                tts_started = True
+                await self.tts.reconnect()
 
         # Normalize user input to English before it reaches the Core Agent.
         english_transcript = await self._translate_to_english(transcript, source_language)
@@ -194,6 +251,7 @@ class VoiceSession:
         buffer = ""
         tts_buffer = ""
         text_buffer = ""
+        spoken_text = ""
         end_of_conversation = False
 
         async for event in self.agent.run(english_transcript):
@@ -220,8 +278,10 @@ class VoiceSession:
                     if text_to_speak:
                         if chunk_text:
                             yield {"type": "text", "content": chunk_text + " "}
+                        await ensure_tts_started()
                         translated = await self._translate_to(text_to_speak, target_language)
                         await self.tts.send_text(translated)
+                        spoken_text = f"{spoken_text} {translated}".strip()
                 elif has_punct:
                     buffer = ""
 
@@ -233,21 +293,59 @@ class VoiceSession:
             chunk_text = text_buffer.strip()
             if chunk_text:
                 yield {"type": "text", "content": chunk_text}
+            await ensure_tts_started()
             translated = await self._translate_to(remaining, target_language)
             await self.tts.send_text(translated)
+            spoken_text = f"{spoken_text} {translated}".strip()
 
-        # Flush once at the end, then drain all remaining audio.
-        await self.tts.flush()
-        async for audio_bytes in self._drain_tts():
-            yield {"type": "audio", "content": audio_bytes}
+        produced_audio = False
+        if tts_started:
+            # Flush once at the end, then drain all remaining audio.
+            await self.tts.flush()
+            async for audio_bytes in self._drain_tts():
+                produced_audio = True
+                yield {"type": "audio", "content": audio_bytes}
+
+        if not produced_audio:
+            async for audio_bytes in self._resynthesize(spoken_text):
+                yield {"type": "audio", "content": audio_bytes}
 
         # Signal the client that the conversation has ended.
         if end_of_conversation:
             yield {"type": "status", "status": "end"}
 
+    async def _resynthesize(self, text: str):
+        """Re-speak a turn that produced no audio, on a fresh connection.
+
+        Sarvam closes a synthesis session once it is finalized (or when it goes
+        idle), and a send that lands on that dead socket produces text but no
+        voice. One clean retry recovers the turn instead of leaving it silent.
+        """
+        if not text.strip():
+            return
+
+        logger.warning("No audio produced — reconnecting and retrying once")
+        try:
+            await self.tts.reconnect()
+            await self.tts.send_text(text)
+            await self.tts.flush()
+        except Exception as e:
+            logger.warning("TTS retry failed: %s", e)
+            return
+
+        async for audio_bytes in self._drain_tts():
+            yield audio_bytes
+
     async def text_to_audio(self, text: str):
         await self.tts.reconnect()
         await self.tts.send_text(text)
         await self.tts.flush()
+
+        produced_audio = False
         async for audio_bytes in self._drain_tts():
+            produced_audio = True
             yield audio_bytes
+
+        if not produced_audio:
+            async for audio_bytes in self._resynthesize(text):
+                yield audio_bytes

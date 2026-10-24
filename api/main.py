@@ -12,6 +12,7 @@ from api.auth import decode_token
 from api.routers.assessment import router as assessment_router
 from api.routers.clinical import router as clinical_router
 from api.routers.consult import router as consult_router
+from api.routers.demographics import router as demographics_router
 from api.routers.doc import router as doc_router
 from api.routers.document import router as document_router
 from api.routers.ehr import router as ehr_router
@@ -39,6 +40,7 @@ ROUTER_AGENT_REQUIREMENTS: list[tuple[object, tuple[str, ...]]] = [
     (document_router, ("document_retrieval",)),
     (pdf_router, ("pdf_chat",)),
     (ehr_router, ("ehr",)),
+    (demographics_router, ("demographics",)),
 ]
 
 

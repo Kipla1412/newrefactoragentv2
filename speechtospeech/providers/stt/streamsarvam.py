@@ -41,7 +41,10 @@ class SarvamStreamingSTTProvider:
             language_code=self.language_code,
             sample_rate=self.sample_rate,
             input_audio_codec="pcm",
-            high_vad_sensitivity=True,
+            # High sensitivity makes the VAD end a segment at the slightest
+            # pause, so one sentence arrives as several "final" transcripts.
+            # Normal sensitivity keeps a sentence together.
+            high_vad_sensitivity=False,
         )
         self.socket = await self.ctx.__aenter__()
         logger.info("Sarvam STT connected", extra={"fields": {"language": language_code}})
@@ -55,7 +58,9 @@ class SarvamStreamingSTTProvider:
             return
         logger.info("Switching STT language", extra={"fields": {"language": language_code}})
         await self._connect_with(language_code)
-        logger.info("STT language switch complete", extra={"fields": {"language": language_code}})
+        logger.info(
+            "STT language switch complete", extra={"fields": {"language": language_code}}
+        )
 
     async def send_audio(self, audio_bytes: bytes):
         if not audio_bytes or self.socket is None:

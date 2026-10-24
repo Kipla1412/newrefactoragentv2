@@ -73,7 +73,8 @@ Blank lines before the opening `---` are tolerated.
 ```
 User Request
   → Custom Agent            agent.run(message, skill="…")
-  → Agent.use_skill(skill)  reusable seam on the base Agent
+  → Agent.active_skill()    caller's name, else the agent's configured skill
+  → Agent.use_skill()       reusable seam on the base Agent
   → SkillRegistry.load()    reads SKILL.md, validates metadata, returns Skill
   → ContextManager          use_skill(skill.instructions)
   → ContextManager.get_messages()   system message = prompt + "# Active Skill"
@@ -84,6 +85,45 @@ User Request
 
 Skill activation never introduces a second loop, a second context, or a second
 prompt path: it is one extra section on the **existing** system message.
+
+## How an agent knows which skill to use
+
+An agent declares its skill in its own `config.yaml`, next to `model`, `prompt`,
+and `tools`:
+
+```yaml
+# customagents/ehragent/config.yaml
+name: ehr
+model: clinical_model
+prompt: ehr
+skill: ehr-fhir-retrieval
+```
+
+`AgentFactory` resolves `skill:` through the `SkillRegistry` and applies it to
+the agent as `agent.default_skill`. `Agent.active_skill()` then decides per
+call:
+
+| Caller passes | Result |
+|---|---|
+| nothing (`None`) | the agent's configured skill |
+| a name (`"other"`) | that skill — the caller overrides the default |
+| `""` | **no skill** — an explicit opt-out for one call |
+| nothing, and no configured skill | no skill (previous behaviour) |
+
+So the request body no longer has to name a skill: `POST /api/agent/mcpagent`
+with just `{"message": "…"}` activates `ehr-fhir-retrieval` because the EHR
+agent declares it. Passing `"skill": "…"` still overrides, and `"skill": ""`
+disables it for that request.
+
+**Validated at startup.** An agent naming a skill that does not exist fails
+`AgentConfigLoader.load()` with
+`Agent '<name>' references unknown skill '<skill>'` — the same fail-early
+treatment as unknown models and prompts, so a typo never becomes a silent
+no-op at runtime.
+
+**Why this over LLM-based selection?** It is deterministic, costs no extra
+call, keeps one source of truth alongside the agent's other registry
+references, and leaves room to add model-driven selection later on top.
 
 ## ContextManager integration
 
@@ -141,12 +181,13 @@ def use_skill(self, skill: str | None) -> Iterator[Skill | None]:
   optional constructor kwarg, `AgentFactory`'s
   `agent_class(agent_config, session=session)` is unchanged.
 - An agent opts in by wrapping part of its execution:
-  `with self.use_skill(skill): async for event in self._agentic_loop(): …`
+  `with self.use_skill(self.active_skill(skill)): async for event in self._agentic_loop(): …`
+  — `active_skill` applies the configured default (see above).
 - Uninitialized sessions fail loudly rather than silently dropping the skill.
 
 `EHRAgent` is wired this way (`run(message, skill=None)`); `DoctorAssistantAgent`
-uses the same inherited block from `recommend_questions(conversation, skill=…)`.
-Neither agent carries its own copy of the logic.
+uses the same inherited pattern from `recommend_questions(conversation, skill=…)`
+and `run(message, skill=…)`. Neither agent carries its own copy of the logic.
 
 ## Scoping and isolation
 
@@ -174,40 +215,56 @@ instructions.
 
 ## Example: `EHRAgent`
 
-`customagents/ehragent/ehragent.py` — the first agent on the reusable seam:
+`customagents/ehragent/config.yaml` declares the skill:
+
+```yaml
+name: ehr
+model: clinical_model
+prompt: ehr
+skill: ehr-fhir-retrieval
+```
+
+`customagents/ehragent/ehragent.py` activates it:
 
 ```python
 agent = AgentFactory.create(AgentType.EHR, config, session)
+assert agent.default_skill == "ehr-fhir-retrieval"   # applied from config
 
-# Without a skill — unchanged behaviour.
+# The agent knows its skill — no argument needed.
 async for event in agent.run("Show medications for patient 12345"):
     ...
 
-# With a skill by name — instructions reach the LLM for this request only.
+# A caller can still override for one request…
 async for event in agent.run("Show medications for patient 12345",
-                             skill="ehr-fhir-retrieval"):
+                             skill="clinical-followup-questions"):
     ...
 
-# The optional tests use the same seam with a temp registry:
+# …or opt out entirely for one request.
+async for event in agent.run("Show medications for patient 12345", skill=""):
+    ...
+
+# Tests inject their own registry:
 agent = EHRAgent(config, session, skill_registry=SkillRegistry(tmp_path))
 ```
 
-Over HTTP, `POST /api/agent/mcpagent` accepts the optional field:
+Over HTTP, `POST /api/agent/mcpagent` needs nothing extra:
 
 ```json
-{ "message": "Show medications for patient 12345",
-  "session_id": "session-123",
-  "skill": "ehr-fhir-retrieval" }
+{ "message": "Show medications for patient 12345", "session_id": "session-123" }
 ```
+
+`skill` is optional and, when supplied, overrides the configured default;
+`"skill": ""` disables it for that request.
 
 ### The other consumer: `DoctorAssistantAgent`
 
 ```python
 agent = AgentFactory.create(AgentType.DOC, config, session)
+assert agent.default_skill == "clinical-followup-questions"
 
-await agent.recommend_questions(conversation)                       # unchanged
-await agent.recommend_questions(conversation,
-                                skill="clinical-followup-questions")
+await agent.recommend_questions(conversation)                       # uses its skill
+await agent.recommend_questions(conversation, skill="")             # no skill
+await agent.recommend_questions(conversation, skill="other")        # override
 ```
 
 Over HTTP, `POST /api/agent/doctoragent` accepts `skill`. `DoctorAgentRequest`
@@ -216,17 +273,25 @@ unchanged.
 
 ## Bundled skills
 
-| Skill | Source of instructions | Preserves |
-|---|---|---|
-| `clinical-followup-questions` | `DOC_PROMPT` | exactly three clinically relevant follow-up questions, no repetition of given or previously asked information, valid JSON only, the `{"questions": [...]}` schema, no diagnosis/treatment/explanation/extra text |
-| `ehr-fhir-retrieval` | `EHR_AGENT_PROMPT` | MCP/FHIR tool usage, grounding every statement in tool output, never fabricating or hallucinating patient data or lab values, concise structured summaries, no diagnosis or intake workflows |
+| Skill | Declared by | Source of instructions | Preserves |
+|---|---|---|---|
+| `clinical-followup-questions` | `doc` | `DOC_PROMPT` | exactly three clinically relevant follow-up questions, no repetition of given or previously asked information, valid JSON only, the `{"questions": [...]}` schema, no diagnosis/treatment/explanation/extra text |
+| `ehr-fhir-retrieval` | `ehr` | `EHR_AGENT_PROMPT` | MCP/FHIR tool usage, grounding every statement in tool output, never fabricating or hallucinating patient data or lab values, concise structured summaries, no diagnosis or intake workflows |
+| `patient-demographics-summary` | `demographics` | written for the skill (the agent's prompt is a minimal role statement) | the Patient/RelatedPerson/Coverage field workflow, a mandatory "missing or unavailable" section, no inventing or inferring data, no assuming an emergency contact or active coverage, identity verification before summarising |
 
-Both are copies of the prompt the agent already uses, so the agents' behaviour
-is unchanged when no skill is requested.
+The first two mirror the prompt the agent already uses, so those agents'
+behaviour is unchanged apart from the instructions now arriving as an explicitly
+activated `# Active Skill` section. `patient-demographics-summary` is new
+content: its agent's prompt is deliberately a minimal role statement, and the
+workflow lives in the skill so it can be revised without touching code.
+
+Any other agent can opt in the same way — add `skill:` to its
+`customagents/<agent>/config.yaml`. Agents without the key behave exactly as
+before: no skill unless the caller names one.
 
 ## Testing
 
-`test/test_skills.py` (63 tests):
+`test/test_skills.py` (75 tests):
 
 | Area | Coverage |
 |---|---|
@@ -237,7 +302,8 @@ is unchanged when no skill is requested.
 | Backward compatibility | no skill → messages byte-identical to the old behaviour; no prompt and no skill → no system message; `clear()` still preserves the prompt |
 | Isolation | `use_skill` scoping, exception safety, nested restore, two contexts independent |
 | Reusable seam | `Agent.skill_registry` defaulted; `Agent.use_skill` activates any registered skill; `None` is a no-op; uninitialized session raises |
-| End-to-end (EHR) | `run(skill=…)` — captured LLM messages contain the skill text and keep `Healthcare MCP Agent`; the bundled `ehr-fhir-retrieval` resolves by name; no skill → no section; follow-up call clean; unknown skill → `agent_error` and no LLM call |
-| End-to-end (doc) | `recommend_questions(skill=…)` and streaming `run(skill=…)` — same checks through the inherited seam; `run()` sets the system prompt (regression) |
+| Default skill resolution | `active_skill`: configured default, caller override, `""` opt-out; schema accepts an optional `skill`; loader rejects an unknown skill and accepts a valid one; the override applier sets `default_skill`; shipped `doc`/`ehr` configs declare theirs |
+| End-to-end (EHR) | `run(skill=…)` and config-driven `run()` — captured LLM messages contain the skill text and keep `Healthcare MCP Agent`; the bundled `ehr-fhir-retrieval` resolves by name; no skill → no section; follow-up call clean; unknown skill → `agent_error` and no LLM call |
+| End-to-end (doc) | `recommend_questions(...)` and streaming `run(...)`, with and without a skill — same checks through the inherited seam; `run()` sets the system prompt (regression) |
 | Output validation | exactly three questions; wrong count, non-list, non-string, blank; markdown fences; invalid JSON |
 | Safety | loading a skill changes neither the tool registry nor `allowed_tools` |

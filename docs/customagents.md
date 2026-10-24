@@ -66,13 +66,17 @@ only the names listed in `LLM_FALLBACK_MODELS` become the retry chain
 
 ### 2. Per-agent config — `customagents/<agent>/config.yaml`
 
-The 13 agent folders each keep their own config. Only `name` is required;
-`model`, `prompt`, and `tools` all have sensible defaults.
+The agent folders each keep their own config. Only `name` is required;
+`model`, `prompt`, `skill`, `tools`, and `agent_class` all have sensible
+defaults.
 
 ```yaml
 name: medical          # logical agent type (matches agents:<name> above)
 model: clinical_model  # a logical model defined under models:
 prompt: medical        # a logical prompt registered in PromptRegistry
+skill: my-skill        # optional: skill activated by default (see docs/skills.md)
+agent_class: generic   # optional: share a registered class instead of being
+                       # registered under this name (see docs/customagents/new-agent.md)
 tools:                 # validated against the existing ToolRegistry
   - memory
   - wiki_search
@@ -83,31 +87,38 @@ tools:                 # validated against the existing ToolRegistry
 - `tools: []` → the agent runs with **no tools**.
 - `tools:` **omitted** → the agent is **unrestricted** (all tools).
 
-Two agents intentionally omit `tools:` because they own their tool set at
+Three agents intentionally omit `tools:` because their tool set only exists at
 runtime rather than from YAML:
 
-| Agent | `config.yaml` | Why tools come from code |
+| Agent | `config.yaml` | Why tools are not listed |
 |---|---|---|
 | `documentagent` (`document_retrieval`) | no `tools` key | `DocumentRetrievalAgent` sets `allowed_tool_names = [jina_embedding, medical_document_search]` in its constructor |
 | `ehragent` (`ehr`) | no `tools` key | the FHIR MCP tools are registered dynamically by the MCP Manager at runtime |
+| `demographicsagent` (`demographics`) | no `tools` key | same — and because `allowed_tool_names` is an exact-match allowlist, naming any tool would filter the `fhir__*` tools out entirely |
 
-### Per-agent config inventory (13 agents)
+### Per-agent config inventory (14 agents)
 
-| Folder | config file | `name` | `model` | `prompt` | `tools` |
-|---|---|---|---|---|---|
-| `consultagent` | `config.yaml` | `consult` | clinical_model | consult | memory |
-| `diarizeagent` | `config.yaml` | `diarize` | clinical_model | diarize | memory |
-| `doctorassistent` | `config.yaml` | `doc` | clinical_model | doc | memory |
-| `documentagent` | `config.yaml` | `document_retrieval` | clinical_model | document_retrieval | _(omitted)_ |
-| `ehragent` | `config.yaml` | `ehr` | clinical_model | ehr | _(omitted)_ |
-| `medicalagent` | `config.yaml` | `medical` | clinical_model | medical | memory, wiki_search, neo4j_query |
-| `pdfagent` | `config.yaml` | `pdf_chat` | clinical_model | pdf_chat | memory |
-| `previsitagent` | `config.yaml` | `intake` | clinical_model | intake | memory |
-| `reportagent` | `soap.config.yaml` | `soap` | clinical_model | soap | memory |
-| `reportagent` | `assessment.config.yaml` | `assessment` | clinical_model | assessment | memory |
-| `reportagent` | `clinical_extraction.config.yaml` | `clinical_extraction` | clinical_model | clinical_extraction | memory |
-| `voiceagent` | `voice_intake.config.yaml` | `voice_intake` | clinical_model | voice_intake | memory |
-| `voiceagent` | `voice_consult.config.yaml` | `voice_consult` | clinical_model | voice_consult | memory |
+| Folder | config file | `name` | `model` | `prompt` | `skill` | `tools` |
+|---|---|---|---|---|---|---|
+| `consultagent` | `config.yaml` | `consult` | clinical_model | consult | — | memory |
+| `demographicsagent` | `config.yaml` | `demographics` | clinical_model | demographics | patient-demographics-summary | _(omitted)_ |
+| `diarizeagent` | `config.yaml` | `diarize` | clinical_model | diarize | — | memory |
+| `doctorassistent` | `config.yaml` | `doc` | clinical_model | doc | clinical-followup-questions | memory |
+| `documentagent` | `config.yaml` | `document_retrieval` | clinical_model | document_retrieval | — | _(omitted)_ |
+| `ehragent` | `config.yaml` | `ehr` | clinical_model | ehr | ehr-fhir-retrieval | _(omitted)_ |
+| `medicalagent` | `config.yaml` | `medical` | clinical_model | medical | — | memory, wiki_search, neo4j_query |
+| `pdfagent` | `config.yaml` | `pdf_chat` | clinical_model | pdf_chat | — | memory |
+| `previsitagent` | `config.yaml` | `intake` | clinical_model | intake | — | memory |
+| `reportagent` | `soap.config.yaml` | `soap` | clinical_model | soap | — | memory |
+| `reportagent` | `assessment.config.yaml` | `assessment` | clinical_model | assessment | — | memory |
+| `reportagent` | `clinical_extraction.config.yaml` | `clinical_extraction` | clinical_model | clinical_extraction | — | memory |
+| `voiceagent` | `voice_intake.config.yaml` | `voice_intake` | clinical_model | voice_intake | — | memory |
+| `voiceagent` | `voice_consult.config.yaml` | `voice_consult` | clinical_model | voice_consult | — | memory |
+
+> `demographics` follows the same pattern as the others: registered under its own
+> name. The `agent_class` escape hatch exists for configuration-only agents — no
+> shipped agent uses it today (see
+> **[customagents/new-agent.md](customagents/new-agent.md)**).
 
 > The `reportagent` configs use the `*.config.yaml` suffix (no other
 > configs live in that folder), so they are discovered by the same
@@ -216,15 +227,22 @@ restart of the agent code is needed beyond a server reload.
 
 ## How to add a new agent
 
-1. Add `models:` / `agents:` entries in `agents.yaml` (and enable it).
-2. Create `customagents/<agent>/config.yaml` with `name/model/prompt/tools`.
-3. Drop the agent class + prompt in the folder.
-4. Register the class:
-   ```python
-   from customagents.factory import AgentFactory
-   AgentFactory.components().types.register("myname", MyAgent)
-   ```
-   (or add it to `DEFAULT_AGENT_CLASSES` in `factory.py`.)
-5. Add the route in `api/main.py` via the `ROUTER_AGENT_REQUIREMENTS` table.
+Nine steps, four of which are registration, and every one of them produces a
+specific startup error if skipped. The full walkthrough — with the code to
+copy, the failure-mode table, and the conventions an agent must follow — lives
+in **[customagents/new-agent.md](customagents/new-agent.md)**.
 
-See **docs/litellm.md** for how the model side of all this is served.
+In short:
+
+1. `AgentType` member in `agent/events.py`.
+2. Prompt constant in `customagents/<agent>/`.
+3. The agent class (constructor signature `(config, session=None, skill_registry=None)`).
+4. `customagents/<agent>/config.yaml` with `name` / `model` / `prompt` / `tools`.
+5. Enable it in `agents.yaml`.
+6. Register the class in `DEFAULT_AGENT_CLASSES`.
+7. Register the prompt in `PromptRegistry.from_builtin()`.
+8. _(optional)_ Route + `ROUTER_AGENT_REQUIREMENTS` entry.
+9. Tests.
+
+See **docs/litellm.md** for how the model side of all this is served, and
+**docs/skills.md** for giving an agent a default skill.

@@ -36,6 +36,13 @@ class AgentYaml(BaseModel):
         skill: Logical skill name activated by default for this agent,
             resolved by the SkillRegistry. None means the agent only uses a
             skill when the caller explicitly asks for one.
+        agent_class: Name of the registered agent class that builds this agent,
+            for config-driven agents that are not registered under their own
+            name (e.g. several agents sharing GenericAgent). When None the
+            agent is registered under its own ``name``.
+        agent_name: Human-readable name used for MLflow tagging and error
+            messages. Only meaningful for config-driven agents that share a
+            class (see GenericAgent); other agents default to their class name.
         tools: Logical tool names resolved by the existing ToolRegistry.
             None leaves the agent's tool set unrestricted; an empty list
             means the agent uses no tools.
@@ -46,6 +53,8 @@ class AgentYaml(BaseModel):
     model: str | None = None
     prompt: str | None = None
     skill: str | None = None
+    agent_class: str | None = None
+    agent_name: str | None = None
     tools: list[str] | None = None
     settings: AgentSettings | None = None
 

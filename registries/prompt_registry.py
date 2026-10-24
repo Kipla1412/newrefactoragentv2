@@ -66,6 +66,7 @@ class PromptRegistry:
             A PromptRegistry containing all built-in agent prompts.
         """
         from customagents.consultagent.consultprompt import CONSULT_PROMPT
+        from customagents.demographicsagent.demographicsprompt import DEMOGRAPHICS_PROMPT
         from customagents.diarizeagent.diarizeprompt import DIARIZE_ROLE_MAP_PROMPT
         from customagents.doctorassistent.docprompt import DOC_PROMPT
         from customagents.documentagent.documentprompt import DOCUMENT_RETRIEVAL_PROMPT
@@ -86,6 +87,7 @@ class PromptRegistry:
             "consult": CONSULT_PROMPT,
             "intake": INTAKE_PROMPT,
             "ehr": EHR_AGENT_PROMPT,
+            "demographics": DEMOGRAPHICS_PROMPT,
             "clinical_extraction": CLINICAL_EXTRACTION_PROMPT,
             "voice_intake": VOICE_INTAKE_PROMPT,
             "voice_consult": VOICE_CONSULT_PROMPT,

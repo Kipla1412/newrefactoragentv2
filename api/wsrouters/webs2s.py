@@ -3,9 +3,14 @@ import asyncio
 import base64
 import re
 import time
+import uuid
 from customagents.factory import AgentFactory
 from customagents.sessionmanager import SessionManager
-from customagents.voiceagent.voiceagent import VoiceSession
+from customagents.voiceagent.voiceagent import (
+    VoiceSession,
+    _drop_unanswered_user_message,
+)
+from customagents.voiceagent.utterance import UtteranceCoalescer
 from customagents.voiceagent.voiceintake import VoiceIntakeAgent
 from customagents.voiceagent.voiceconsult import VoiceConsultAgent
 from speechtospeech.providers.stt.streamsarvam import SarvamStreamingSTTProvider
@@ -42,6 +47,16 @@ def detect_language(text: str) -> str | None:
     return None
 
 
+def _resolve_session_id(requested_session_id: str | None) -> str:
+    """Pick the session id for a voice connection.
+
+    A client may pin a session id to resume a conversation. When it does not,
+    every connection gets a brand-new session, so restarting a call never
+    inherits the previous conversation's history.
+    """
+    return requested_session_id or str(uuid.uuid4())
+
+
 async def _authenticate_ws(ws: WebSocket):
     token = None
     auth_header = ws.headers.get("Authorization")
@@ -58,7 +73,7 @@ async def _authenticate_ws(ws: WebSocket):
         ws.state.user = user
         return user
     except Exception as e:
-        logger.error(f"WebSocket Auth Failed: {e}")
+        logger.error("WebSocket auth failed: %s", e)
         await ws.close(code=1008)
         return None
 
@@ -80,7 +95,7 @@ async def _voice_stream(ws: WebSocket, agent_type: str):
 
     await ws.accept()
     label = "Voice Intake" if agent_type == "voice_intake" else "Voice Consult"
-    logger.info("Session started", extra={"fields": {"agent": agent_type}})
+    logger.info("%s session started", label)
 
     user_id = str(user.get("id", "unknown_user"))
     config = ws.app.state.config
@@ -102,7 +117,7 @@ async def _voice_stream(ws: WebSocket, agent_type: str):
                 raise
             except Exception as e:
                 connection_open = False
-                logger.error(f"WebSocket send failed: {e}")
+                logger.error("WebSocket send failed: %s", e)
                 raise
 
     async def safe_close(code: int = 1000, reason: str = ""):
@@ -113,11 +128,18 @@ async def _voice_stream(ws: WebSocket, agent_type: str):
             try:
                 await ws.close(code=code, reason=reason)
             except Exception as e:
-                logger.debug(f"WebSocket close failed: {e}")
+                logger.debug("WebSocket close failed: %s", e)
             finally:
                 connection_open = False
 
-    session = await session_manager.get_session(user_id, config)
+    # Sessions are keyed by user AND session id. If the client pins a session
+    # id we reuse it (resume); otherwise this connection gets a fresh session
+    # so a restart never inherits the previous conversation's history.
+    requested_session_id = ws.query_params.get("session_id")
+    session_id = _resolve_session_id(requested_session_id)
+    is_ephemeral_session = requested_session_id is None
+
+    session = await session_manager.get_session(user_id, config, session_id=session_id)
     if not session.context_manager:
         await session.initialize()
 
@@ -163,11 +185,14 @@ async def _voice_stream(ws: WebSocket, agent_type: str):
                 audio_payload = base64.b64encode(audio_bytes).decode("utf-8")
                 await safe_send_json({"type": "audio", "audio": audio_payload})
         except Exception as e:
-            logger.error(f"Greeting playback failed: {e}")
+            logger.error("Greeting playback failed: %s", e)
 
     await safe_send_json({"type": "status", "status": "ready"})
 
-    transcript_queue = asyncio.Queue()
+    # Sarvam's VAD can split one spoken sentence into several "final"
+    # transcripts. They are coalesced here so the agent receives the whole
+    # utterance as a single turn instead of answering (and cancelling) pieces.
+    coalescer = UtteranceCoalescer()
     active_response_task = None
 
     try:
@@ -180,7 +205,7 @@ async def _voice_stream(ws: WebSocket, agent_type: str):
             except WebSocketDisconnect:
                 raise
             except Exception as e:
-                logger.error(f"Error reading client audio bytes: {e}")
+                logger.error("Error reading client audio bytes: %s", e)
 
         async def generate_and_send_response(transcript_text: str, source_language: str):
             try:
@@ -217,19 +242,33 @@ async def _voice_stream(ws: WebSocket, agent_type: str):
                             "data": {"status": "end", "agent": agent_type},
                         })
 
-                if text_buffer.strip():
-                    if prompts_enabled():
-                        logger.debug("Assistant text", extra={"fields": {"text": text_buffer.strip()}})
+                if prompts_enabled() and text_buffer.strip():
+                    logger.debug(
+                        "Outbound assistant text",
+                        extra={"fields": {"text": text_buffer.strip()}},
+                    )
                 if audio_buffer_len > 0:
-                    logger.debug("Assistant audio", extra={"fields": {"bytes": audio_buffer_len}})
+                    logger.debug(
+                        "Outbound audio",
+                        extra={"fields": {"base64_bytes": audio_buffer_len}},
+                    )
 
                 if not ended:
                     await safe_send_json({"type": "status", "status": "ready"})
 
             except asyncio.CancelledError:
+                # The patient spoke again, so this turn was interrupted before
+                # it produced a reply. Drop the now-unanswered user message so
+                # the next turn does not start with two user messages in a row.
+                _drop_unanswered_user_message(session)
                 logger.info("Response generation task explicitly cancelled.")
             except Exception as e:
-                logger.error(f"Error in response generation: {e}")
+                logger.error("Error in response generation: %s", e)
+                # Never leave the client stuck on "thinking" — hand the mic back.
+                try:
+                    await safe_send_json({"type": "status", "status": "ready"})
+                except Exception:
+                    pass
 
         async def process_transcripts():
             nonlocal patient_language
@@ -264,7 +303,12 @@ async def _voice_stream(ws: WebSocket, agent_type: str):
                         patient_language = detected
                         logger.info(
                             "Patient language detected",
-                            extra={"fields": {"language": patient_language, "source": detection_source}},
+                            extra={
+                                "fields": {
+                                    "language": patient_language,
+                                    "source": detection_source,
+                                }
+                            },
                         )
                         try:
                             await tts.update_config(
@@ -272,35 +316,50 @@ async def _voice_stream(ws: WebSocket, agent_type: str):
                                 speaker=config.sarvam_speaker
                             )
                         except Exception as e:
-                            logger.error(f"TTS update failed: {e}")
+                            logger.error("TTS update failed: %s", e)
 
                 source_language = detected
+
+                # Show the patient's *complete* utterance, not just the newest
+                # fragment: finals are merged by the coalescer, and partials are
+                # already cumulative.
+                if is_final:
+                    if prompts_enabled():
+                        logger.debug(
+                            "Final STT fragment", extra={"fields": {"text": raw_text}}
+                        )
+                    coalescer.add(raw_text, source_language)
+                    display_text = coalescer.pending
+                else:
+                    display_text = raw_text
+
                 logger.debug(
                     "User turn received",
                     extra={"fields": {"user_id": user_id, "is_final": is_final}},
                 )
                 if prompts_enabled():
-                    logger.debug("User transcript", extra={"fields": {"text": raw_text}})
-                await safe_send_json({"type": "transcript", "text": raw_text})
-
-                # Only final transcripts trigger an agent response. Partial
-                # transcripts update the live display but must not restart the
-                # agent/TTS pipeline (that churn tears down the TTS connection
-                # before audio can complete).
-                if is_final:
-                    await transcript_queue.put((raw_text, source_language))
+                    logger.debug(
+                        "User transcript", extra={"fields": {"text": display_text}}
+                    )
+                await safe_send_json({"type": "transcript", "text": display_text})
 
         async def dispatch_responses():
             nonlocal active_response_task
-            while True:
+            async for transcript, source_language in coalescer.utterances():
                 try:
-                    transcript, source_language = await transcript_queue.get()
-                except asyncio.CancelledError:
-                    break
+                    # The fragments have been merged — make sure the client shows
+                    # the patient's complete utterance.
+                    await safe_send_json({"type": "transcript", "text": transcript})
 
-                try:
                     if active_response_task and not active_response_task.done():
-                        logger.debug("Interrupting active speaking block for new phrase")
+                        logger.debug(
+                            "Interrupting active speaking block for new phrase"
+                        )
+                        # Tell the client to drop the audio it has already
+                        # buffered: cancelling the server task stops future
+                        # chunks, but the browser keeps playing everything it
+                        # has queued — so the old reply would finish first.
+                        await safe_send_json({"type": "status", "status": "interrupted"})
                         active_response_task.cancel()
                         try:
                             await active_response_task
@@ -317,9 +376,7 @@ async def _voice_stream(ws: WebSocket, agent_type: str):
                 except asyncio.CancelledError:
                     break
                 except Exception as e:
-                    logger.error(f"Queue orchestration failure: {e}")
-                finally:
-                    transcript_queue.task_done()
+                    logger.error("Queue orchestration failure: %s", e)
 
         receive_task = asyncio.create_task(receive_audio())
         transcript_task = asyncio.create_task(process_transcripts())
@@ -342,6 +399,8 @@ async def _voice_stream(ws: WebSocket, agent_type: str):
         except Exception:
             pass
     finally:
+        coalescer.close()
+
         if active_response_task and not active_response_task.done():
             active_response_task.cancel()
 
@@ -365,4 +424,13 @@ async def _voice_stream(ws: WebSocket, agent_type: str):
         if voice_agent and voice_agent.session and voice_agent.session.client:
             await voice_agent.session.client.close()
 
-        logger.info("Session closed safely", extra={"fields": {"agent": agent_type}})
+        # Drop ephemeral sessions on disconnect so their context does not leak
+        # into the next call and they do not accumulate in memory. Sessions the
+        # client pinned with an explicit session_id are kept for resumption.
+        if is_ephemeral_session:
+            try:
+                await session_manager.delete_session(user_id, session_id)
+            except Exception as e:
+                logger.debug("Ephemeral session cleanup failed: %s", e)
+
+        logger.info("%s session closed safely", label)

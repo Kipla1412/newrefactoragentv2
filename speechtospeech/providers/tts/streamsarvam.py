@@ -30,7 +30,7 @@ class SarvamStreamingTTSProvider:
         """Establishes a clean connection state, closing old contexts safely."""
         async with self.lock:
             await self._cleanup()
-
+            
             logger.info("Connecting to Sarvam TTS")
             try:
                 self.ctx = self.client.text_to_speech_streaming.connect(
@@ -62,8 +62,8 @@ class SarvamStreamingTTSProvider:
             await self._cleanup()
 
         await self.connect()
-
-
+                
+   
     # Add this method to your SarvamStreamingTTSProvider
     async def update_config(self, language_code: str, speaker: str):
         self.language_code = language_code
@@ -86,7 +86,7 @@ class SarvamStreamingTTSProvider:
     async def send_text(self, text: str):
         if not text.strip():
             return
-
+        
         try:
             await self.ensure_connected()
             if self.socket:
@@ -102,21 +102,32 @@ class SarvamStreamingTTSProvider:
             await self.ensure_connected()
             if not self.socket:
                 return None
-
+                
             res = await self.socket.recv()
-
+            
             # Catch raw API error drops gracefully
             if res and getattr(res, "type", None) == "error":
                 code = getattr(res.data, "code", None) if hasattr(res, "data") else None
                 if code == 408:
                     logger.info("TTS idle session timeout notification received (408)")
                     await self.close()
+                    # The session is gone, so hand the caller a clean stop
+                    # signal. Returning the error event itself would leave the
+                    # drain loop spinning: it is not a completion event, so the
+                    # loop would call receive_audio() again, reconnect, and
+                    # block on an empty socket until the drain timeout fires.
+                    return None
             return res
         except Exception as e:
-            logger.warning("TTS receive error: %s", e)
-            if "closed" in str(e).lower() or "1000" in str(e) or "none" in str(e).lower():
-                logger.info("TTS connection dead, cleaning up references")
+            message = str(e)
+            if "1000" in message or "closed" in message.lower() or "none" in message.lower():
+                # The socket was opened with send_completion_event=True, so
+                # Sarvam finalizes and closes the synthesis session after our
+                # flush. That is the expected end of a turn, not a failure.
+                logger.info("TTS session closed by Sarvam: %s", message)
                 await self.close()
+            else:
+                logger.debug("TTS recv notice: %s", message)
             return None
 
     async def flush(self):

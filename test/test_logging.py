@@ -35,26 +35,6 @@ from utils.logging_config import (
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 
-# Framework modules that must log rather than print.
-CORE_MODULES = (
-    "agent/agent.py",
-    "agent/session.py",
-    "client/llm_client.py",
-    "context/manager.py",
-    "safety/approval.py",
-    "tools/registry.py",
-    "tools/mcp/client.py",
-    "tools/mcp/mcp_manager.py",
-    "hooks/hook_system.py",
-    "api/auth.py",
-    "api/main.py",
-    "utils/mlflow_tracker.py",
-    "customagents/doctorassistent/docagent.py",
-    "customagents/voiceagent/voiceagent.py",
-    "speechtospeech/providers/stt/huggingface.py",
-)
-
-
 @pytest.fixture(autouse=True)
 def _restore_logging():
     """Keep a test's logging configuration from leaking into other tests."""
@@ -335,23 +315,6 @@ def test_prompts_enabled_rejects_falsy_values(monkeypatch, value):
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.parametrize("relative", CORE_MODULES)
-def test_core_modules_do_not_use_print(relative):
-    """Diagnostics must go through logging so they can be leveled and filtered."""
-    source = (PROJECT_ROOT / relative).read_text(encoding="utf-8")
-    tree = ast.parse(source)
-
-    offenders = sorted(
-        node.lineno
-        for node in ast.walk(tree)
-        if isinstance(node, ast.Call)
-        and isinstance(node.func, ast.Name)
-        and node.func.id == "print"
-    )
-
-    assert offenders == [], f"{relative} still calls print() at lines {offenders}"
-
-
 @pytest.mark.parametrize(
     "module_path,attr",
     [
@@ -360,6 +323,17 @@ def test_core_modules_do_not_use_print(relative):
         ("safety/approval.py", "safety.approval"),
         ("tools/registry.py", "tools.registry"),
         ("utils/mlflow_tracker.py", "utils.mlflow_tracker"),
+        ("customagents/voiceagent/voiceagent.py", "customagents.voiceagent.voiceagent"),
+        ("customagents/voiceagent/utterance.py", "customagents.voiceagent.utterance"),
+        (
+            "speechtospeech/providers/stt/streamsarvam.py",
+            "speechtospeech.providers.stt.streamsarvam",
+        ),
+        (
+            "speechtospeech/providers/tts/streamsarvam.py",
+            "speechtospeech.providers.tts.streamsarvam",
+        ),
+        ("api/wsrouters/webs2s.py", "api.wsrouters.webs2s"),
     ],
 )
 def test_core_modules_expose_a_module_logger(module_path, attr):
@@ -409,3 +383,31 @@ def test_framework_modules_obtain_loggers_through_get_logger():
     assert offenders == [], (
         "these modules bypass utils.logging_config.get_logger: " + ", ".join(offenders)
     )
+
+
+def test_no_framework_module_uses_print():
+    """Diagnostics must go through logging so they can be leveled and filtered.
+
+    This walks whole packages rather than a hand-maintained file list. A
+    per-file allowlist silently stops covering modules that are added later —
+    or whose conversion is reverted — which is exactly how the Sarvam voice
+    providers ended up with prints while the suite stayed green.
+    """
+    offenders: list[str] = []
+
+    for package in FRAMEWORK_PACKAGES:
+        for path in sorted((PROJECT_ROOT / package).rglob("*.py")):
+            tree = ast.parse(path.read_text(encoding="utf-8"))
+
+            lines = sorted(
+                node.lineno
+                for node in ast.walk(tree)
+                if isinstance(node, ast.Call)
+                and isinstance(node.func, ast.Name)
+                and node.func.id == "print"
+            )
+
+            if lines:
+                offenders.append(f"{path.relative_to(PROJECT_ROOT)}: {lines}")
+
+    assert offenders == [], "print() is still used in: " + "; ".join(offenders)

@@ -13,6 +13,7 @@ from speechtospeech.texttospeech.ttsengine import TTSEngine
 from dotenv import load_dotenv
 from utils.errors import ConfigError
 from config.schemas import ApplicationAgentConfig
+
 load_dotenv()
 
 
