@@ -41,7 +41,7 @@ Non-streaming request/response (unlike `/consult`).
    `"Generate a medical assessment report based on this transcript:\n{transcript}"`
 4. Consumes the agentic loop (`TEXT_DELTA` accumulated, `TEXT_COMPLETE`
    replaces) and returns parsed JSON.
-5. `_parse_report()` strips ```json fences; on failure it returns
+5. `_parse_report()` strips markdown code fences; on failure it returns
    `{"error": "JSON Parsing Failed", "raw_content": <first 500 chars>}` so the
    client still gets a debuggable body instead of a 500.
 

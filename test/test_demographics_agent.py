@@ -232,63 +232,107 @@ def test_skill_requires_related_person_fields():
 
 # ---------------------------------------------------------------------------
 # Instruction contract (what the model is told)
+#
+# These assert the shipped LangCare skill's actual contents. When that skill is
+# updated upstream, update these alongside it.
 # ---------------------------------------------------------------------------
 
 
-def test_skill_forbids_inventing_or_inferring_data():
+def test_skill_names_the_tools_this_server_exposes():
     text = _skill_text()
 
-    assert "Never invent, guess, infer" in text
-    assert "traceable to retrieved data" in text
+    for tool in (
+        "fhir__get_patient_by_id",
+        "fhir__get_patient_core_by_id",
+        "fhir__list_patient_names",
+        "fhir__list_patient_identifiers",
+        "fhir__list_patient_telecom",
+        "fhir__list_patient_addresses",
+        "fhir__list_patient_photos",
+        "fhir__list_patient_contacts",
+        "fhir__list_patient_communications",
+        "fhir__list_patient_general_practitioners",
+        "fhir__list_patient_links",
+    ):
+        assert tool in text, tool
+
+    # The generic FHIR tools this server does not expose must not be invoked.
+    assert "Tool: fhir_read" not in text
+    assert "Tool: fhir_search" not in text
 
 
-def test_skill_forbids_assuming_emergency_contact():
+def test_skill_marks_the_unavailable_resources():
     text = _skill_text()
 
-    assert "Do not label anyone an emergency contact" in text
-    assert "a phone number alone is not" in text
+    assert "Not available on this server" in text
+    assert "NOT AVAILABLE" in text
+
+    for resource in ("Coverage", "Consent", "DocumentReference", "AllergyIntolerance"):
+        assert resource in text
+
+    # It must not instruct a lookup that has no tool behind it.
+    assert 'resourceType: "Coverage"' not in text
+    assert 'resourceType: "Consent"' not in text
+    assert 'resourceType: "DocumentReference"' not in text
 
 
-def test_skill_forbids_assuming_active_coverage():
+def test_skill_warns_that_links_are_not_contacts():
     text = _skill_text()
 
-    assert "Do not state that coverage is active" in text
-    assert "not, by itself, a statement of active coverage" in text
+    assert "fhir__list_patient_links` is not the contacts tool" in text
+    assert "Patient.link" in text
 
 
-def test_skill_requires_patient_identity_verification():
+def test_skill_requires_missing_critical_data_flags():
     text = _skill_text()
 
-    # Must stop on a mismatch rather than summarising the wrong person.
-    assert "does not correspond to the requested identifier" in text
+    assert "Flag Missing Critical Data" in text
+    assert "MISSING DATA FLAGS" in text
+
+    for flagged in (
+        "No emergency contact",
+        "No active insurance coverage",
+        "No preferred language",
+        "No advance directive on file",
+        "No nominated primary care provider",
+        "Missing phone number or email",
+        "Missing address",
+    ):
+        assert flagged in text
 
 
-def test_skill_requires_a_missing_data_section_distinguishing_failure_modes():
+def test_skill_ties_emergency_contact_to_relationship_evidence():
     text = _skill_text()
 
-    assert "Missing or Unavailable" in text
-    assert "not present" in text
-    assert "not retrieved" in text
-    assert "retrieval failed" in text
+    # A contact is labelled an emergency contact from the coded relationship.
+    assert "relationship.coding.code" in text
+    assert "emergency-contact relationship" in text
 
 
-def test_skill_requires_attempting_retrieval_before_reporting_no_data():
+def test_skill_verifies_the_patient_id():
     text = _skill_text()
 
-    assert "at least one retrieval attempt is mandatory" in text.lower()
+    assert "Verify the patient ID is correct" in text
+    # There is no name-search tool on this server, so it must not invent one.
+    assert "there is no name-search tool" in text
 
 
-def test_skill_handles_invalid_identifiers_without_falling_back_to_a_search():
+def test_skill_uses_embedded_patient_contact_entries():
     text = _skill_text()
 
-    assert "Never fall back to a search" in text
+    assert "Patient.contact" in text
 
 
-def test_skill_states_privacy_rules():
+def test_skill_documents_the_per_field_fallback_tools():
     text = _skill_text()
 
-    assert "PRIVACY AND AUTHORIZATION" in text
-    assert "authorization" in text.lower()
+    assert "before concluding a field is missing" in text
+
+
+def test_skill_handles_identifier_format_mismatch():
+    text = _skill_text()
+
+    assert "some use UUIDs, others use numeric IDs" in text
 
 
 # ---------------------------------------------------------------------------
@@ -359,7 +403,7 @@ def test_skill_instructions_reach_the_llm(config):
     system = captured[0][0]
     assert system["role"] == "system"
     # The skill's workflow and the agent's role prompt both arrive.
-    assert "RETRIEVAL WORKFLOW" in system["content"]
+    assert "FHIR Resources Used" in system["content"]
     assert "patient demographics assistant" in system["content"].lower()
 
     # Scoped to the request.
@@ -372,7 +416,7 @@ def test_no_skill_means_no_skill_section(config):
     _drive(agent)
 
     content = captured[0][0]["content"]
-    assert "RETRIEVAL WORKFLOW" not in content
+    assert "FHIR Resources Used" not in content
     assert "# Active Skill" not in content
     # The role prompt still states the hard rules.
     assert "never invent" in content.lower()
@@ -476,7 +520,7 @@ def test_skill_does_not_leak_into_a_followup_request(config):
     agent, session, captured = _build(config, _text_only("summary"))
 
     _drive(agent)
-    assert "RETRIEVAL WORKFLOW" in captured[0][0]["content"]
+    assert "FHIR Resources Used" in captured[0][0]["content"]
 
     _drive(agent, "and their coverage?")
 

@@ -77,15 +77,34 @@ Requires `consultagent:chat`.
 
 ## What the skill enforces
 
-| Rule | Detail |
+Adapted from LangCare's `langcare-mcp-fhir` project
+(`skills/core/patient-data-summary/patient-demographics-summary/SKILL.md`). The
+steps now match the tools this server actually exposes.
+
+| Step | Detail |
 |---|---|
-| Grounding | every populated field must trace to retrieved data; no inventing or deriving |
-| Identity | stop and report if the returned resource is not the requested identifier |
-| Emergency contact | never labelled unless the data explicitly identifies one |
-| Coverage | never described as active unless the resource says so; an open `period` is not evidence |
-| Missing data | a mandatory **Missing or Unavailable** section separating *not present*, *not retrieved*, and *retrieval failed* |
-| Failures | invalid identifier → report and stop (never fall back to a name search); tool failure → report it and still produce a partial summary |
-| Privacy | minimum necessary; report authorization refusal rather than working around it |
+| Patient | `fhir__get_patient_by_id` (or `fhir__get_patient_core_by_id`): identifiers, official/maiden name, `birthDate` + age, gender, US Core race/ethnicity extensions, addresses by `use`, telecom, preferred language, marital status, deceased, managing organization |
+| Per-field fallback | `fhir__list_patient_{names,identifiers,telecom,addresses,communications}` when the patient resource comes back sparse |
+| Contacts | `fhir__list_patient_contacts` — embedded `Patient.contact` entries; relationship from `relationship.coding.code`, `period` used to confirm it is current |
+| Nominated PCP | `fhir__list_patient_general_practitioners` |
+| Coverage | **not available on this server** — flagged, never guessed |
+| Advance directives | **not available on this server** (no Consent/DocumentReference tool) — flagged, never guessed |
+| Allergy status | **not available** (no AllergyIntolerance tool) — reported as unknown |
+| Missing data | a mandatory **MISSING DATA FLAGS** section |
+| Output | `PATIENT DEMOGRAPHICS / CONTACT INFORMATION / EMERGENCY CONTACTS / INSURANCE COVERAGE / ADVANCE DIRECTIVES / MISSING DATA FLAGS` |
+
+Two traps the skill warns about:
+
+- `fhir__list_patient_links` is **not** the contacts tool — it returns
+  `Patient.link` (merged-record / replaced-by), not next-of-kin.
+- `fhir__list_patient_contacts` returns embedded `Patient.contact`, not
+  separate RelatedPerson resources.
+
+> **Where the stricter rules live.** The upstream skill has no "never invent"
+> rule and no explicit prohibition on assuming an emergency contact or active
+> coverage. Those live in the agent's role prompt (`DEMOGRAPHICS_PROMPT`), which
+> is prepended to the skill in the same system message — see
+> `customagents/demographicsagent/demographicsprompt.py`.
 
 ## Relationship to other agents
 
@@ -100,7 +119,7 @@ Requires `consultagent:chat`.
 | Area | Coverage |
 |---|---|
 | Skill loading | discovery, metadata, frontmatter validity, all three resource types, every agreed field |
-| Instruction contract | no invention/inference, no assumed emergency contact, no assumed active coverage, identity verification, the three-way missing-data distinction, retrieval-before-"no data", no name-search fallback, privacy section |
+| Instruction contract | asserts the shipped LangCare skill's contents: `fhir_read`/`fhir_search`, the **MISSING DATA FLAGS** list, relationship-based emergency contacts, active-only Coverage with plan details, advance directives, the `Patient.contact` fallback, the allergy-review distinction, and the id-format note |
 | Registration | `AgentType.DEMOGRAPHICS`, registered under its own name in `DEFAULT_AGENT_CLASSES`; prompt registered; route mounted with `message`/`session_id`/`skill` |
 | Configuration | shipped config sets prompt + skill, no `tools`, and no `agent_class` |
 | Construction | builds through `AgentFactory` as a `DemographicsAgent` with prompt and skill applied |

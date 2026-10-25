@@ -59,8 +59,8 @@ diarized/ordered utterances from the consultation transcript.
    ```
 5. Runs the agentic loop, accumulating the streamed `TEXT_COMPLETE`
    payload.
-6. Parses the LLM output as JSON via `_parse_soap_json` (strips
-   ```json fences, falls back to `{"error": "JSON_PARSING_FAILED", …}`
+6. Parses the LLM output as JSON via `_parse_soap_json` (strips markdown code
+   fences, falls back to `{"error": "JSON_PARSING_FAILED", …}`
    on unparseable output).
 
 ## Response contract

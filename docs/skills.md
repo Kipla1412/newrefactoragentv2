@@ -277,13 +277,14 @@ unchanged.
 |---|---|---|---|
 | `clinical-followup-questions` | `doc` | `DOC_PROMPT` | exactly three clinically relevant follow-up questions, no repetition of given or previously asked information, valid JSON only, the `{"questions": [...]}` schema, no diagnosis/treatment/explanation/extra text |
 | `ehr-fhir-retrieval` | `ehr` | `EHR_AGENT_PROMPT` | MCP/FHIR tool usage, grounding every statement in tool output, never fabricating or hallucinating patient data or lab values, concise structured summaries, no diagnosis or intake workflows |
-| `patient-demographics-summary` | `demographics` | written for the skill (the agent's prompt is a minimal role statement) | the Patient/RelatedPerson/Coverage field workflow, a mandatory "missing or unavailable" section, no inventing or inferring data, no assuming an emergency contact or active coverage, identity verification before summarising |
+| `patient-demographics-summary` | `demographics` | LangCare (`langcare-mcp-fhir`), adapted to the patient-centric tools this server exposes | the Patient field workflow via `fhir__get_patient_by_id` and the `fhir__list_patient_*` tools, embedded `Patient.contact` for contacts, a **MISSING DATA FLAGS** section, and explicit "not available on this server" markers for Coverage, advance directives, and allergy status |
 
 The first two mirror the prompt the agent already uses, so those agents'
 behaviour is unchanged apart from the instructions now arriving as an explicitly
-activated `# Active Skill` section. `patient-demographics-summary` is new
-content: its agent's prompt is deliberately a minimal role statement, and the
-workflow lives in the skill so it can be revised without touching code.
+activated `# Active Skill` section. `patient-demographics-summary` is adapted
+from the LangCare FHIR MCP project: the workflow is theirs, the tool names match
+this deployment, and the resources it cannot reach are marked rather than
+guessed.
 
 Any other agent can opt in the same way — add `skill:` to its
 `customagents/<agent>/config.yaml`. Agents without the key behave exactly as
