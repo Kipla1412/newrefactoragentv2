@@ -4,6 +4,7 @@ Architecture and operations notes for this framework.
 
 | Document | Covers |
 |---|---|
+| [installation.md](installation.md) | **Start here** — prerequisites, install, `.env`, running the API and CLI, troubleshooting |
 | [customagents.md](customagents.md) | The config-driven agent system: two-level YAML, `enabled` gating, `AgentFactory`, the ToolRegistry boundary |
 | [customagents/new-agent.md](customagents/new-agent.md) | **Build guide** — how to add a new agent, step by step, with the registration checklist and failure modes |
 | [customagents/](customagents/README.md) | One doc per agent — files, configuration, runtime flow, contracts, testing |

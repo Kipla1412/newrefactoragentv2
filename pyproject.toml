@@ -16,6 +16,7 @@ dependencies = [
     "ddgs",
     "tiktoken",
     "fastapi",
+    "uvicorn",
     "reportlab",
     "requests",
     "websockets",

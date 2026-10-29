@@ -2,6 +2,9 @@
 
 An AI agent that can execute tasks using tools and manage conversations.
 
+> **New here?** Start with **[docs/installation.md](docs/installation.md)** —
+> prerequisites, dependency install, `.env` setup, and running the API or CLI.
+
 ## How a request flows
 
 ```
@@ -172,6 +175,7 @@ Detailed notes live in [`docs/`](docs/README.md):
 
 | Document | Covers |
 |---|---|
+| [docs/installation.md](docs/installation.md) | Install, configure, and run — the starting point for new users |
 | [docs/customagents.md](docs/customagents.md) | The config-driven agent system |
 | [docs/customagents/new-agent.md](docs/customagents/new-agent.md) | Build guide for a new agent |
 | [docs/customagents/](docs/customagents/README.md) | One page per agent, with a route map |

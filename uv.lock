@@ -3722,6 +3722,7 @@ dependencies = [
     { name = "soundfile" },
     { name = "tiktoken" },
     { name = "tomli" },
+    { name = "uvicorn" },
     { name = "websockets" },
 ]
 
@@ -3753,6 +3754,7 @@ requires-dist = [
     { name = "soundfile" },
     { name = "tiktoken" },
     { name = "tomli" },
+    { name = "uvicorn" },
     { name = "websockets" },
 ]
 
