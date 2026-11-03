@@ -131,7 +131,9 @@ class LLMClient:
 
         return self.config.default_litellm_model
 
-    def _candidate_models(self, model: str | None) -> list[str]:
+    def _candidate_models(
+        self, model: str | None, *, use_fallbacks: bool = True
+    ) -> list[str]:
         """Return the ordered list of models to attempt.
 
         The requested (or default) model is tried first, followed by any
@@ -139,15 +141,21 @@ class LLMClient:
 
         Args:
             model: Logical model name, raw LiteLLM model string, or None.
+            use_fallbacks: When False, only the requested model is returned.
+                Used by callers that must fail loudly rather than be answered
+                by a weaker fallback model (e.g. an evaluation judge that
+                requires valid JSON).
 
         Returns:
             De-duplicated LiteLLM model identifiers.
         """
         candidates = [self._resolve_model(model)]
-        candidates.extend(
-            self._resolve_model(name)
-            for name in self.config.litellm_fallback_models
-        )
+
+        if use_fallbacks:
+            candidates.extend(
+                self._resolve_model(name)
+                for name in self.config.litellm_fallback_models
+            )
 
         ordered: list[str] = []
         for candidate in candidates:
@@ -212,6 +220,8 @@ class LLMClient:
         tools: list[dict[str, Any]] | None = None,
         stream: bool = True,
         tool_choice: str | dict[str, Any] | None = None,
+        *,
+        use_fallbacks: bool = True,
         **kwargs_extra,
     ) -> AsyncGenerator[StreamEvent, None]:
         """Stream a chat completion as framework StreamEvents.
@@ -243,7 +253,7 @@ class LLMClient:
         ):
             model = self.model_router.route(messages=messages)
 
-        candidates = self._candidate_models(model)
+        candidates = self._candidate_models(model, use_fallbacks=use_fallbacks)
 
         # Metadata only by default: this framework handles patient data, so
         # message content is logged solely when LOG_PROMPTS is enabled.
@@ -278,7 +288,7 @@ class LLMClient:
         for index, candidate in enumerate(candidates):
             if index:
                 logger.warning(
-                    "Previous model failed; falling back to %s", candidate
+                    "Falling back to %s after: %s", candidate, last_error
                 )
             attempt = 0
             while True:

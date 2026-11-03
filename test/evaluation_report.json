@@ -1,0 +1,66 @@
+{
+  "dataset_name": "intake_agent_offline_evaluation",
+  "agent": "Intake Agent",
+  "started_at": "2026-10-30T05:10:23+00:00",
+  "duration_ms": 20891.7,
+  "summary": {
+    "cases": 1,
+    "cases_passed": 1,
+    "cases_failed": 0,
+    "checks_passed": 2,
+    "checks_total": 2,
+    "check_score": 1.0,
+    "errors": 0,
+    "skipped_checks": [
+      "updates_corrected_value"
+    ],
+    "duration_ms": 20891.7
+  },
+  "llm_metrics": {
+    "status": "ok",
+    "metrics": [
+      "AnswerRelevancyMetric",
+      "TaskCompletionMetric"
+    ]
+  },
+  "cases": [
+    {
+      "case_id": "INTAKE_007",
+      "scenario": "Patient changes a demographic answer",
+      "answer": "Thank you for clarifying. What is the main reason for your visit today?",
+      "greeting": null,
+      "ok": true,
+      "error": null,
+      "history_turns": 2,
+      "duration_ms": 7449.4,
+      "event_count": 17,
+      "tool_calls": [],
+      "checks": [
+        {
+          "name": "no_error",
+          "passed": true,
+          "detail": "agent completed"
+        },
+        {
+          "name": "no_hallucination",
+          "passed": true,
+          "detail": "no invented values"
+        }
+      ],
+      "skipped_checks": [
+        "updates_corrected_value"
+      ],
+      "checks_passed": 2,
+      "checks_total": 2,
+      "check_score": 1.0,
+      "llm_scores": {
+        "AnswerRelevancyMetric": 0.5,
+        "TaskCompletionMetric": 0.6
+      },
+      "llm_reasons": {
+        "AnswerRelevancyMetric": "The score is 0.50 because the output included an irrelevant question about the main reason for the visit, which does not address the user's correction about the date. The score is not lower because the response still partially relates to the user's input.",
+        "TaskCompletionMetric": "The system recognized the change in demographic information but did not explicitly update or confirm the demographic answer. Instead, it moved on to the next question, which may not fully address the task of changing a demographic answer."
+      }
+    }
+  ]
+}

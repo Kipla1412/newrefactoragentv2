@@ -104,6 +104,32 @@ LiteLLM logs every completion at INFO, and `httpx`, `urllib3`, `neo4j`,
 `LOG_THIRD_PARTY_LEVEL` (default `WARNING`) so framework records stay readable.
 Raise it to `DEBUG` when you need to see library internals.
 
+## Metrics
+
+Metrics are separate from logging. They are recorded on the MLflow run the agent
+opens (`MLFLOW_ENABLED=true`) **and** emitted as one structured log line, so the
+numbers are still visible with tracking switched off.
+
+Every **voice turn** records:
+
+| Metric | Meaning |
+|---|---|
+| `turn_seconds` | wall-clock time for the turn |
+| `llm_first_token_seconds` | time to the agent's first token |
+| `tts_first_audio_seconds` | time to the first synthesised audio chunk |
+| `text_chunks` / `audio_chunks` / `audio_bytes` | volume produced |
+| `resynthesized` | the synthesis socket produced nothing and the turn was retried |
+| `end_of_conversation` | the agent signalled the end of the consultation |
+
+with the configuration recorded as params: `stt_provider` / `stt_model` and
+`tts_provider` / `tts_model` / `tts_speaker` — these are **Sarvam** models, not
+an LLM model — plus the `source_language` → `target_language` pair. The agent's
+reasoning and translation still go through the configured LLM, and the loop
+records `prompt_tokens` / `completion_tokens` / `total_tokens` separately.
+
+Recording is best-effort: it never raises into a live turn and is a no-op when
+MLflow is disabled. No transcript or audio content is recorded.
+
 ## Where it is wired
 
 | Entrypoint | Call |

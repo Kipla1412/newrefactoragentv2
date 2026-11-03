@@ -1,6 +1,7 @@
 from __future__ import annotations
 import asyncio
 import re
+import time
 import base64
 from typing import TYPE_CHECKING, AsyncGenerator
 from agent.agent import Agent
@@ -216,6 +217,17 @@ class VoiceSession:
         target_language: str = "en-IN",
         source_language: str = "en-IN",
     ):
+        # Observability for this turn. STT/TTS are Sarvam; only the agent's
+        # reasoning and translation use the configured LLM, so the two are
+        # measured and recorded separately.
+        turn_start = time.monotonic()
+        first_token_at: float | None = None
+        first_audio_at: float | None = None
+        text_chunks = 0
+        audio_chunks = 0
+        audio_bytes_total = 0
+        resynthesized = False
+
         logger.debug(
             "Processing transcript to audio",
             extra={
@@ -256,6 +268,8 @@ class VoiceSession:
 
         async for event in self.agent.run(english_transcript):
             if event.type == AgentEventType.TEXT_DELTA:
+                if first_token_at is None:
+                    first_token_at = time.monotonic()
                 token = event.data["content"]
                 buffer += token
                 tts_buffer += token
@@ -277,6 +291,7 @@ class VoiceSession:
                     text_buffer = ""
                     if text_to_speak:
                         if chunk_text:
+                            text_chunks += 1
                             yield {"type": "text", "content": chunk_text + " "}
                         await ensure_tts_started()
                         translated = await self._translate_to(text_to_speak, target_language)
@@ -292,6 +307,7 @@ class VoiceSession:
         if remaining:
             chunk_text = text_buffer.strip()
             if chunk_text:
+                text_chunks += 1
                 yield {"type": "text", "content": chunk_text}
             await ensure_tts_started()
             translated = await self._translate_to(remaining, target_language)
@@ -304,15 +320,107 @@ class VoiceSession:
             await self.tts.flush()
             async for audio_bytes in self._drain_tts():
                 produced_audio = True
+                if first_audio_at is None:
+                    first_audio_at = time.monotonic()
+                audio_chunks += 1
+                audio_bytes_total += len(audio_bytes)
                 yield {"type": "audio", "content": audio_bytes}
 
         if not produced_audio:
+            # The synthesis socket produced nothing, so this turn is recovered
+            # by resynthesising on a fresh connection.
+            resynthesized = True
             async for audio_bytes in self._resynthesize(spoken_text):
+                if first_audio_at is None:
+                    first_audio_at = time.monotonic()
+                audio_chunks += 1
+                audio_bytes_total += len(audio_bytes)
                 yield {"type": "audio", "content": audio_bytes}
+
+        self._record_turn(
+            turn_start=turn_start,
+            first_token_at=first_token_at,
+            first_audio_at=first_audio_at,
+            text_chunks=text_chunks,
+            audio_chunks=audio_chunks,
+            audio_bytes=audio_bytes_total,
+            resynthesized=resynthesized,
+            end_of_conversation=end_of_conversation,
+            source_language=source_language,
+            target_language=target_language,
+        )
 
         # Signal the client that the conversation has ended.
         if end_of_conversation:
             yield {"type": "status", "status": "end"}
+
+    def _record_turn(
+        self,
+        *,
+        turn_start: float,
+        first_token_at: float | None,
+        first_audio_at: float | None,
+        text_chunks: int,
+        audio_chunks: int,
+        audio_bytes: int,
+        resynthesized: bool,
+        end_of_conversation: bool,
+        source_language: str,
+        target_language: str,
+    ) -> None:
+        """Record one voice turn's latency, volume, and model configuration.
+
+        STT and TTS are Sarvam models; only the agent's reasoning and
+        translation go through the configured LLM. Both are recorded so a slow
+        turn can be attributed to the right stage.
+
+        Metrics go to MLflow when tracking is enabled and are always logged, so
+        the numbers are still visible with tracking switched off. No transcript
+        or audio content is recorded.
+        """
+        turn_seconds = time.monotonic() - turn_start
+
+        metrics: dict[str, float | int] = {
+            "turn_seconds": round(turn_seconds, 3),
+            "text_chunks": text_chunks,
+            "audio_chunks": audio_chunks,
+            "audio_bytes": audio_bytes,
+            "resynthesized": int(resynthesized),
+            "end_of_conversation": int(end_of_conversation),
+        }
+        if first_token_at is not None:
+            metrics["llm_first_token_seconds"] = round(first_token_at - turn_start, 3)
+        if first_audio_at is not None:
+            metrics["tts_first_audio_seconds"] = round(first_audio_at - turn_start, 3)
+
+        # Telemetry is best-effort: never let recording break a live turn.
+        config = getattr(self.agent, "config", None)
+        settings = {
+            "stt_provider": "sarvam",
+            "stt_model": getattr(config, "sarvam_stt_model", None),
+            "tts_provider": "sarvam",
+            "tts_model": getattr(config, "sarvam_tts_model", None),
+            "tts_speaker": getattr(config, "sarvam_speaker", None),
+            "source_language": source_language,
+            "target_language": target_language,
+        }
+
+        logger.info(
+            "Voice turn complete",
+            extra={"fields": {**metrics, **settings}},
+        )
+
+        tracker = getattr(getattr(self.agent, "session", None), "mlflow_tracker", None)
+        if not tracker:
+            return
+
+        try:
+            tracker.log_metrics(metrics)
+            for name, value in settings.items():
+                if value is not None:
+                    tracker.log_param(name, str(value))
+        except Exception as e:
+            logger.warning("Failed to record voice turn metrics: %s", e)
 
     async def _resynthesize(self, text: str):
         """Re-speak a turn that produced no audio, on a fresh connection.

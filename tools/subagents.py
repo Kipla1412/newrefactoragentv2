@@ -44,7 +44,7 @@ class SubagentTool(Tool):
 
     async def execute(self, invocation: ToolInvocation) -> ToolResult:
         from agent.agent import Agent
-        from agent.events import AgentEventType
+        from agent.events import AgentEventType, AgentType
 
         params = SubagentParams(**invocation.params)
         if not params.goal:
@@ -78,7 +78,7 @@ class SubagentTool(Tool):
         terminate_response = "goal"
 
         try:
-            async with Agent(subagent_config) as agent:
+            async with Agent(subagent_config, prompt, AgentType.GENERIC) as agent:
                 loop = asyncio.get_running_loop()
                 deadline = (
                     loop.time() + self.definition.timeout_seconds

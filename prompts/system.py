@@ -47,7 +47,7 @@ The user has granted you access to run tools in service of their request. Use th
 
 #Business logic specific operational guidelines
 
-def _get_developer_instructions_section(instructions: str) -> str:
+def _get_developer_instructions_section(instructions: str) -> str:  # high priority context
     return f"""# Project Instructions
 
 The following instructions were provided by the project maintainers:

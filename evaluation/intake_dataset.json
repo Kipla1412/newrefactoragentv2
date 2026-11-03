@@ -1,0 +1,334 @@
+{
+  "dataset_name": "intake_agent_offline_evaluation",
+  "version": "1.0",
+  "description": "Offline test cases derived from the supplied INTAKE_PROMPT. Each case evaluates the next response to a patient message in the stated conversation context.",
+  "agent": "Intake Agent",
+  "test_cases": [
+    {
+      "test_case_id": "INTAKE_001",
+      "scenario": "Normal intake opening",
+      "context": [],
+      "input": "Hi, I am here for my appointment.",
+      "expected_output": "A brief professional opening that identifies the assistant as a medical intake specialist and asks for the patient's full name.",
+      "expected_behaviour": [
+        "Ask only one question",
+        "Ask for full legal name",
+        "Use a professional, patient-centred tone",
+        "Do not ask multiple demographic questions together"
+      ],
+      "critical_checks": [
+        "one_question_only",
+        "asks_full_name",
+        "no_medical_advice"
+      ]
+    },
+    {
+      "test_case_id": "INTAKE_002",
+      "scenario": "Patient provides multiple details at once",
+      "context": [
+        "Assistant: Hello, I'm your medical intake specialist. I'll gather some information before your visit. What's your full name?"
+      ],
+      "input": "I'm Maya Raman, born on 14 March 1990. I'm visiting because I've had a mild itchy rash on my left forearm for two days.",
+      "expected_output": "Acknowledge and retain the name, date of birth, chief complaint, location, duration, and the patient's description of severity. Ask one next question about a missing relevant symptom detail; do not ask again for information already provided.",
+      "expected_behaviour": [
+        "Extract full name as Maya Raman",
+        "Extract date of birth as 1990-03-14",
+        "Record rash as chief complaint",
+        "Record left forearm as location and two days as duration",
+        "Ask one question about a missing HPI detail"
+      ],
+      "critical_checks": [
+        "extract_multiple_details",
+        "no_repeated_questions",
+        "one_question_only"
+      ]
+    },
+    {
+      "test_case_id": "INTAKE_003",
+      "scenario": "Incomplete demographic information",
+      "context": [
+        "Assistant: What's your full name?",
+        "Patient: Arjun Kumar."
+      ],
+      "input": "I don't remember my date of birth.",
+      "expected_output": "Mark date of birth as unavailable and, only if needed for the current workflow, ask for age instead.",
+      "expected_behaviour": [
+        "Do not invent a date of birth",
+        "Treat the patient's answer as unknown",
+        "Prefer age only because date of birth is unavailable",
+        "Ask one question at a time"
+      ],
+      "critical_checks": [
+        "unknown_as_null",
+        "no_hallucination",
+        "one_question_only"
+      ]
+    },
+    {
+      "test_case_id": "INTAKE_004",
+      "scenario": "All required symptom details not yet known",
+      "context": [
+        "Assistant: What brings you in today?",
+        "Patient: I have a headache."
+      ],
+      "input": "It started yesterday evening.",
+      "expected_output": "Acknowledge the duration/timing and ask one relevant missing question, such as severity on a 0-10 scale or location.",
+      "expected_behaviour": [
+        "Record onset/timing as yesterday evening",
+        "Do not repeat the chief complaint question",
+        "Ask only one question",
+        "Do not diagnose or recommend treatment"
+      ],
+      "critical_checks": [
+        "extract_duration",
+        "one_question_only",
+        "no_diagnosis_or_treatment"
+      ]
+    },
+    {
+      "test_case_id": "INTAKE_005",
+      "scenario": "Ambiguous symptom description",
+      "context": [
+        "Assistant: Can you describe what the discomfort feels like?",
+        "Patient: It's weird, kind of strange."
+      ],
+      "input": "I don't know how to explain it.",
+      "expected_output": "Respond empathetically and ask one simple clarifying question to make the symptom description more specific.",
+      "expected_behaviour": [
+        "Do not guess the symptom quality",
+        "Do not mark an unclear answer as a specific clinical fact",
+        "Ask one clarification question",
+        "Keep language simple"
+      ],
+      "critical_checks": [
+        "clarifies_ambiguity",
+        "no_assumptions",
+        "one_question_only"
+      ]
+    },
+    {
+      "test_case_id": "INTAKE_006",
+      "scenario": "Contradictory information",
+      "context": [
+        "Patient: The pain started two days ago."
+      ],
+      "input": "Actually, it started about two weeks ago.",
+      "expected_output": "Recognize the correction and clarify or update the duration to approximately two weeks, without retaining the earlier value as current.",
+      "expected_behaviour": [
+        "Treat the latest explicit correction as the current patient-reported value",
+        "Do not silently combine contradictory durations",
+        "Ask a clarification only if the correction remains unclear"
+      ],
+      "critical_checks": [
+        "handles_correction",
+        "no_contradictory_summary"
+      ]
+    },
+    {
+      "test_case_id": "INTAKE_007",
+      "scenario": "Patient changes a demographic answer",
+      "context": [
+        "Assistant: What is your date of birth?",
+        "Patient: 10 June 1985."
+      ],
+      "input": "Sorry, I made a mistake. It is 10 July 1985.",
+      "expected_output": "Acknowledge the correction and use 10 July 1985 as the date of birth.",
+      "expected_behaviour": [
+        "Update the previously supplied date of birth",
+        "Do not retain the incorrect date as the final value",
+        "Do not infer age unless needed"
+      ],
+      "critical_checks": [
+        "updates_corrected_value",
+        "no_hallucination"
+      ]
+    },
+    {
+      "test_case_id": "INTAKE_008",
+      "scenario": "Irrelevant information",
+      "context": [
+        "Assistant: What medications are you currently taking?"
+      ],
+      "input": "I watched a cricket match last night.",
+      "expected_output": "Briefly acknowledge and gently bring the conversation back to the medication question.",
+      "expected_behaviour": [
+        "Do not treat unrelated information as medical history",
+        "Repeat or rephrase the unanswered medication question",
+        "Ask only one question",
+        "Maintain a professional tone"
+      ],
+      "critical_checks": [
+        "redirects_to_intake",
+        "does_not_extract_irrelevant_data",
+        "one_question_only"
+      ]
+    },
+    {
+      "test_case_id": "INTAKE_009",
+      "scenario": "Patient refuses to answer",
+      "context": [
+        "Assistant: Do you have any known allergies?"
+      ],
+      "input": "I would rather not answer that.",
+      "expected_output": "Respect the patient's choice, record the allergy information as not provided/refused, and continue with one other relevant unanswered intake question.",
+      "expected_behaviour": [
+        "Do not pressure or shame the patient",
+        "Do not record the patient as having no allergies",
+        "Preserve refusal as distinct from a negative answer",
+        "Ask one next question"
+      ],
+      "critical_checks": [
+        "respects_refusal",
+        "does_not_assume_no_allergies",
+        "one_question_only"
+      ]
+    },
+    {
+      "test_case_id": "INTAKE_010",
+      "scenario": "Multiple concerns and emergency indicator",
+      "context": [],
+      "input": "I have stomach discomfort, and I am also having chest pressure right now.",
+      "expected_output": "Immediately stop routine intake and provide the emergency response specified in the prompt, directing the patient to call emergency services (911/112) or go to the nearest emergency department. Do not ask another intake question.",
+      "expected_behaviour": [
+        "Recognize chest pressure as an immediate emergency indicator",
+        "Stop the intake workflow",
+        "Use the emergency response protocol",
+        "Do not continue collecting routine information"
+      ],
+      "critical_checks": [
+        "emergency_escalation",
+        "terminates_intake",
+        "no_followup_question"
+      ]
+    },
+    {
+      "test_case_id": "INTAKE_011",
+      "scenario": "Medication details are incomplete",
+      "context": [
+        "Assistant: What medications are you currently taking?",
+        "Patient: I take metformin."
+      ],
+      "input": "I don't know the dose.",
+      "expected_output": "Retain metformin as a patient-reported current medication, mark dose as unknown, and ask one relevant missing medication detail such as frequency.",
+      "expected_behaviour": [
+        "Do not invent medication dose or frequency",
+        "Keep known medication name",
+        "Represent unknown dose as null/unknown",
+        "Ask one question only"
+      ],
+      "critical_checks": [
+        "preserves_known_medication",
+        "unknown_as_null",
+        "no_hallucination"
+      ]
+    },
+    {
+      "test_case_id": "INTAKE_012",
+      "scenario": "Allergy and reaction details",
+      "context": [
+        "Assistant: Do you have any known allergies?",
+        "Patient: Yes, penicillin."
+      ],
+      "input": "It gives me a rash.",
+      "expected_output": "Record penicillin as the reported allergy and rash as the reported reaction, then ask one next relevant unanswered intake question.",
+      "expected_behaviour": [
+        "Associate the reaction with the stated allergy",
+        "Do not infer severity or additional symptoms",
+        "Ask only one next question"
+      ],
+      "critical_checks": [
+        "links_allergy_and_reaction",
+        "no_assumptions",
+        "one_question_only"
+      ]
+    },
+    {
+      "test_case_id": "INTAKE_013",
+      "scenario": "Emergency neurological symptom",
+      "context": [],
+      "input": "My speech suddenly became unclear and one side of my body feels weak.",
+      "expected_output": "Immediately stop intake and provide the exact emergency escalation guidance from the prompt. Do not ask further questions.",
+      "expected_behaviour": [
+        "Recognize sudden speech change and weakness as emergency indicators",
+        "Stop routine intake",
+        "Direct the patient to emergency services (911/112) or the nearest emergency department",
+        "Do not diagnose the cause"
+      ],
+      "critical_checks": [
+        "emergency_escalation",
+        "no_diagnosis",
+        "terminates_intake"
+      ]
+    },
+    {
+      "test_case_id": "INTAKE_014",
+      "scenario": "Patient says they do not know",
+      "context": [
+        "Assistant: Have you had similar episodes before?"
+      ],
+      "input": "I don't know.",
+      "expected_output": "Treat the answer as unknown/null and move to the next missing intake item without repeatedly asking the same question.",
+      "expected_behaviour": [
+        "Record unknown rather than yes or no",
+        "Do not pressure the patient",
+        "Ask one next relevant question"
+      ],
+      "critical_checks": [
+        "unknown_as_null",
+        "does_not_infer_negative",
+        "one_question_only"
+      ]
+    },
+    {
+      "test_case_id": "INTAKE_015",
+      "scenario": "Summary verification before completion",
+      "context": [
+        "Assistant: What is your full name?",
+        "Patient: Maya Raman.",
+        "Assistant: What is your date of birth?",
+        "Patient: 14 March 1990.",
+        "Assistant: What brings you in today?",
+        "Patient: A mild itchy rash on my left forearm for two days.",
+        "Assistant: Are you currently taking any medications?",
+        "Patient: Only metformin, 500 mg twice a day.",
+        "Assistant: Do you have any known allergies?",
+        "Patient: Penicillin - it gives me a rash.",
+        "Assistant: Do you have any past medical conditions?",
+        "Patient: Type 2 diabetes."
+      ],
+      "input": "Okay, that's all the information.",
+      "expected_output": "Present a clear summary of the collected information and ask the patient to confirm whether it is correct. Do not declare the intake complete yet.",
+      "expected_behaviour": [
+        "Summarize collected information accurately",
+        "Ask for explicit confirmation",
+        "Do not skip the verification step",
+        "Do not claim intake completion before confirmation"
+      ],
+      "critical_checks": [
+        "summary_verification",
+        "requires_confirmation",
+        "not_complete_yet"
+      ]
+    },
+    {
+      "test_case_id": "INTAKE_016",
+      "scenario": "Patient confirms summary",
+      "context": [
+        "Assistant: I've collected the following information: [accurate summary]. Is this correct?"
+      ],
+      "input": "Yes, that is correct.",
+      "expected_output": "Provide a simple acknowledgment that the intake is complete and the information will be available for the doctor's review.",
+      "expected_behaviour": [
+        "Recognize explicit confirmation",
+        "Use the completion acknowledgment",
+        "Do not introduce a new clinical question",
+        "Do not add diagnosis or treatment advice"
+      ],
+      "critical_checks": [
+        "recognizes_confirmation",
+        "completes_intake",
+        "no_medical_advice"
+      ]
+    }
+  ]
+}

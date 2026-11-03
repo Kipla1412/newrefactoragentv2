@@ -4,7 +4,7 @@ import sys
 import click
 
 from agent.agent import Agent
-from agent.events import AgentEventType
+from agent.events import AgentEventType, AgentType
 from agent.persistence import PersistenceManager, SessionSnapshot
 from agent.session import Session
 from config.config import ApprovalPolicy, Config
@@ -29,9 +29,30 @@ class CLI:
             "their tasks by using the tools available to you when needed."
         )
 
+    def _build_agent(
+        self,
+        system_prompt: str,
+        confirmation_callback=None,
+    ) -> Agent:
+        """Build the base agent used by both CLI modes.
+
+        Args:
+            system_prompt: Resolved system prompt for this run.
+            confirmation_callback: Optional handler for tool approvals.
+
+        Returns:
+            A configured ``Agent``.
+        """
+        return Agent(
+            self.config,
+            system_prompt,
+            AgentType.GENERIC,
+            confirmation_callback=confirmation_callback,
+        )
+
     async def run_single(self, message: str) -> str | None:
         system_prompt = get_system_prompt(self.config, self._default_role_prompt())
-        async with Agent(self.config, system_prompt) as agent:
+        async with self._build_agent(system_prompt) as agent:
             self.agent = agent
             return await self._process_message(message)
 
@@ -46,8 +67,7 @@ class CLI:
         )
 
         system_prompt = get_system_prompt(self.config, self._default_role_prompt())
-        async with Agent(
-            self.config,
+        async with self._build_agent(
             system_prompt,
             confirmation_callback=self.tui.handle_confirmation,
         ) as agent:
@@ -358,4 +378,5 @@ def main(
         asyncio.run(cli.run_interactive())
 
 
-main()
+if __name__ == "__main__":
+    main()

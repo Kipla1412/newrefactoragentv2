@@ -611,3 +611,18 @@ def _collect_agent(agent):
         return [event async for event in agent._agentic_loop()]
 
     return asyncio.run(_run())
+
+def test_candidate_models_can_skip_fallbacks(monkeypatch):
+    """A caller that must fail loudly can opt out of the fallback chain."""
+    from agent.session import Session
+
+    monkeypatch.setenv("LLM_FALLBACK_MODELS", "clinical_model")
+
+    config = Config(models=_models_config())
+    client = Session(config).client
+
+    with_fallbacks = client._candidate_models("fast")
+    assert len(with_fallbacks) >= 2
+
+    # Only the requested model; no fallbacks appended.
+    assert client._candidate_models("fast", use_fallbacks=False) == with_fallbacks[:1]
