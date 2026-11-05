@@ -1,8 +1,9 @@
-"""Tests for the intake agent adapter.
+"""Tests for the intake case runner.
 
-The adapter drives the real agent exactly as production does, replays the case's
-conversation context, and normalizes the event stream — in particular keeping the
-one-time greeting apart from the answer.
+The runner drives the real agent exactly as production does, replays the case's
+conversation context, and normalizes the event stream into an
+``EvaluationContext`` — in particular keeping the one-time greeting apart from
+the answer.
 
 The LLM is stubbed at the session's client, so no network or API key is used and
 the real ``IntakeAgent`` (and the shared agentic loop) still runs.
@@ -16,8 +17,8 @@ import pytest
 
 from agent.session import Session
 from client.response import StreamEvent, StreamEventType, TextDelta, TokenUsage
-from evaluation.adapter import IntakeAgentAdapter
-from evaluation.dataset import EvalCase
+from evaluation.adapters.agent_case_runner import AgentCaseRunner
+from evaluation.datasets import EvalCase
 
 QUESTION = "Thanks. What is the date of your last visit?"
 
@@ -75,8 +76,8 @@ def _recording_factory(config, sink, *texts):
     return make
 
 
-def _run(adapter, case):
-    return asyncio.run(adapter.run_case(case))
+def _run(runner, case):
+    return asyncio.run(runner.run_case(case))
 
 
 def _case(input_text="I'm Maria Garcia.", context=None, **overrides) -> EvalCase:
@@ -97,35 +98,46 @@ def _case(input_text="I'm Maria Garcia.", context=None, **overrides) -> EvalCase
 
 
 def test_keeps_the_greeting_apart_from_the_answer(config):
-    adapter = IntakeAgentAdapter(config, session_factory=_factory(config, QUESTION))
+    runner = AgentCaseRunner(config, session_factory=_factory(config, QUESTION))
 
-    observation = _run(adapter, _case())
+    context = _run(runner, _case())
 
-    assert observation.greeting is not None
-    assert observation.greeting.startswith("Hello, I'm your medical intake assistant")
-    assert observation.answer == QUESTION
-    assert QUESTION not in observation.greeting
-    assert observation.ok is True
+    assert context.metadata["greeting"] is not None
+    assert context.metadata["greeting"].startswith(
+        "Hello, I'm your medical intake assistant"
+    )
+    assert context.answer == QUESTION
+    assert QUESTION not in context.metadata["greeting"]
+    assert context.error is None
 
 
 def test_full_text_includes_greeting_and_answer(config):
-    adapter = IntakeAgentAdapter(config, session_factory=_factory(config, QUESTION))
+    runner = AgentCaseRunner(config, session_factory=_factory(config, QUESTION))
 
-    observation = _run(adapter, _case())
+    context = _run(runner, _case())
 
-    assert "medical intake assistant" in observation.full_text
-    assert QUESTION in observation.full_text
+    # The old adapter exposed greeting and answer as a single ``full_text``;
+    # rebuild it locally from the context's parts.
+    full_text = " ".join(
+        part
+        for part in (context.metadata["greeting"] or "", context.output)
+        if part
+    ).strip()
+
+    assert "medical intake assistant" in full_text
+    assert QUESTION in full_text
 
 
 def test_records_turns_events_and_duration(config):
-    adapter = IntakeAgentAdapter(config, session_factory=_factory(config, QUESTION))
+    runner = AgentCaseRunner(config, session_factory=_factory(config, QUESTION))
 
-    observation = _run(adapter, _case())
+    case = _case()
+    context = _run(runner, case)
 
-    assert observation.turns == 1
-    assert observation.history_turns == 0
-    assert observation.event_count >= 2
-    assert observation.duration_ms >= 0
+    assert len(case.prompts) == 1
+    assert context.metadata["history_turns"] == 0
+    assert context.metadata["event_count"] >= 2
+    assert context.duration_ms >= 0
 
 
 # ---------------------------------------------------------------------------
@@ -135,7 +147,7 @@ def test_records_turns_events_and_duration(config):
 
 def test_replays_the_case_context_before_the_evaluated_turn(config):
     sink: list = []
-    adapter = IntakeAgentAdapter(config, session_factory=_recording_factory(config, sink))
+    runner = AgentCaseRunner(config, session_factory=_recording_factory(config, sink))
 
     case = _case(
         input_text="Actually, it started about two weeks ago.",
@@ -145,9 +157,9 @@ def test_replays_the_case_context_before_the_evaluated_turn(config):
         ],
     )
 
-    observation = _run(adapter, case)
+    context = _run(runner, case)
 
-    assert observation.history_turns == 2
+    assert context.metadata["history_turns"] == 2
 
     messages = sink[0]
     assert messages[0]["role"] == "system"
@@ -161,27 +173,27 @@ def test_replays_the_case_context_before_the_evaluated_turn(config):
 
 def test_a_replayed_conversation_suppresses_the_greeting(config):
     """Mid-conversation cases must not get a synthetic greeting first."""
-    adapter = IntakeAgentAdapter(config, session_factory=_factory(config, QUESTION))
+    runner = AgentCaseRunner(config, session_factory=_factory(config, QUESTION))
 
     case = _case(context=["Assistant: What's your full name?"])
 
-    observation = _run(adapter, case)
+    context = _run(runner, case)
 
-    assert observation.history_turns == 1
-    assert observation.greeting is None
+    assert context.metadata["history_turns"] == 1
+    assert context.metadata["greeting"] is None
 
 
 def test_prose_context_is_not_replayed(config):
     sink: list = []
-    adapter = IntakeAgentAdapter(config, session_factory=_recording_factory(config, sink))
+    runner = AgentCaseRunner(config, session_factory=_recording_factory(config, sink))
 
     case = _case(context=["The agent has collected all required categories."])
 
-    observation = _run(adapter, case)
+    context = _run(runner, case)
 
-    assert observation.history_turns == 0
+    assert context.metadata["history_turns"] == 0
     # Fresh session, so the greeting is still expected.
-    assert observation.greeting is not None
+    assert context.metadata["greeting"] is not None
 
 
 # ---------------------------------------------------------------------------
@@ -191,15 +203,15 @@ def test_prose_context_is_not_replayed(config):
 
 def test_detects_completion(config):
     completion = "Thank you. Your intake is complete."
-    adapter = IntakeAgentAdapter(config, session_factory=_factory(config, completion))
+    runner = AgentCaseRunner(config, session_factory=_factory(config, completion))
 
-    assert _run(adapter, _case()).ended is True
+    assert _run(runner, _case()).ended is True
 
 
 def test_does_not_report_completion_for_a_normal_reply(config):
-    adapter = IntakeAgentAdapter(config, session_factory=_factory(config, QUESTION))
+    runner = AgentCaseRunner(config, session_factory=_factory(config, QUESTION))
 
-    assert _run(adapter, _case()).ended is False
+    assert _run(runner, _case()).ended is False
 
 
 def test_records_an_agent_error_without_raising(config):
@@ -213,13 +225,13 @@ def test_records_an_agent_error_without_raising(config):
         session.client.chat_completion = boom
         return session
 
-    adapter = IntakeAgentAdapter(config, session_factory=factory)
+    runner = AgentCaseRunner(config, session_factory=factory)
 
-    observation = _run(adapter, _case())
+    context = _run(runner, _case())
 
-    assert observation.ok is False
-    assert observation.error
-    assert "judge unavailable" in observation.error
+    assert context.error is not None
+    assert context.error
+    assert "judge unavailable" in context.error
 
 
 def test_closes_the_llm_client(config):
@@ -235,7 +247,7 @@ def test_closes_the_llm_client(config):
         session.client.close = fake_close
         return session
 
-    _run(IntakeAgentAdapter(config, session_factory=factory), _case())
+    _run(AgentCaseRunner(config, session_factory=factory), _case())
 
     assert closed == [True]
 
@@ -249,10 +261,10 @@ def test_each_case_gets_a_fresh_session(config):
         sessions.append(session)
         return session
 
-    adapter = IntakeAgentAdapter(config, session_factory=factory)
+    runner = AgentCaseRunner(config, session_factory=factory)
 
-    _run(adapter, _case())
-    _run(adapter, _case())
+    _run(runner, _case())
+    _run(runner, _case())
 
     assert len(sessions) == 2
     assert sessions[0] is not sessions[1]

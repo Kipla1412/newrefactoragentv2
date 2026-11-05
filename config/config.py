@@ -170,6 +170,78 @@ class KnowledgeConfig(BaseModel):
     wiki: WikiConfig = Field(default_factory=WikiConfig)
     neo4j: Neo4jConfig = Field(default_factory=Neo4jConfig)
 
+
+class EvaluationRealtimeConfig(BaseModel):
+    """Real-time evaluation settings."""
+
+    enabled: bool = False
+    asynchronous: bool = True
+    max_concurrency: int = 2
+    timeout: float = 60.0
+
+
+class EvaluationLLMConfig(BaseModel):
+    """Settings for LLM-judged metrics (MLflow's DeepEval scorers).
+
+    ``allow_external_calls`` defaults to **False**: this framework handles
+    patient data, so sending content to an external judge is an explicit
+    operator decision. With the flag off, the metrics are still registered and
+    report themselves as skipped with the reason, so the report says why.
+
+    Attributes:
+        allow_external_calls: Whether an external judge may be called.
+        model_uri: Judge model URI; ``None`` uses MLflow's own default.
+        thresholds: Per-metric passing thresholds, keyed by registry name.
+    """
+
+    allow_external_calls: bool = False
+    model_uri: str | None = None
+    thresholds: dict[str, float] = Field(default_factory=dict)
+
+
+class EvaluationOfflineConfig(BaseModel):
+    """Offline (golden dataset) evaluation settings."""
+
+    enabled: bool = True
+
+
+class EvaluationAgentConfig(BaseModel):
+    """Per-agent metric configuration.
+
+    Attributes:
+        metrics: Deterministic metric names that run on every turn.
+        end_of_intake_metrics: Deterministic metric names that only apply when
+            an agent is finishing (for intake: escalation and completion). These
+            never run on a mid-flow turn; they are selected per case via that
+            case's ``critical_checks``.
+        llm_metrics: LLM-judged metric names (gated by ``llm.allow_external_calls``).
+    """
+
+    metrics: list[str] = Field(default_factory=list)
+    end_of_intake_metrics: list[str] = Field(default_factory=list)
+    llm_metrics: list[str] = Field(default_factory=list)
+
+
+class EvaluationSection(BaseModel):
+    """The ``evaluation:`` block of ``agents.yaml``.
+
+    Attributes:
+        enabled: Master switch; ``False`` disables evaluation entirely.
+        realtime: Real-time (live execution) settings.
+        offline: Whether golden-dataset evaluation is permitted.
+        common_metrics: Metrics that run for every agent.
+        agents: Per-agent metric configuration, keyed by agent name.
+        llm: Settings for LLM-judged metrics.
+    """
+
+    enabled: bool = True
+    realtime: EvaluationRealtimeConfig = Field(default_factory=EvaluationRealtimeConfig)
+    offline: EvaluationOfflineConfig = Field(default_factory=EvaluationOfflineConfig)
+    common_metrics: list[str] = Field(default_factory=list)
+    agents: dict[str, EvaluationAgentConfig] = Field(default_factory=dict)
+    llm: EvaluationLLMConfig = Field(default_factory=EvaluationLLMConfig)
+
+
 class Config(BaseModel):
     
     model: ModelConfig = Field(default_factory=ModelConfig)
@@ -195,6 +267,8 @@ class Config(BaseModel):
 
     models: ModelsSection = Field(default_factory=ModelsSection)
     agents: AgentsSection = Field(default_factory=AgentsSection)
+
+    evaluation: EvaluationSection = Field(default_factory=EvaluationSection)
 
     debug: bool = False
 

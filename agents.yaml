@@ -76,3 +76,63 @@ agents:
   voice_consult:       { enabled: true }
   document_retrieval:  { enabled: true }
   pdf_chat:            { enabled: true }
+
+# Evaluation. One engine serves real-time and offline evaluation; the only
+# difference is where the evaluation event came from.
+#
+# `metrics` are deterministic rules: always run, no LLM, no flake.
+# `llm_metrics` are MLflow's DeepEval scorers, judged by an LLM. They are only
+# registered as trustworthy when `llm.allow_external_calls` is true — this
+# framework handles patient data, so that is an explicit operator decision.
+# With the flag off the metric still appears in the report as "skipped" with the
+# reason, so a gap is visible rather than silent.
+#
+# Metric names come from evaluation/agents/*/rules.py (deterministic) and
+# evaluation/adapters/mlflow_scorer/spec.py (LLM).
+evaluation:
+
+  enabled: true
+
+  realtime:
+    enabled: false          # live per-turn evaluation; off until opted in
+    asynchronous: true
+    max_concurrency: 2
+    timeout: 60
+
+  offline:
+    enabled: true
+
+  common_metrics: []
+
+  agents:
+
+    intake:
+      # Per-turn rules: these judge how the agent *behaves* mid-intake, so they
+      # must run on every turn.
+      metrics:
+        - medical_boundary_compliance
+        - no_repeated_questions
+      # End-of-intake outcome rules: these only apply when intake is actually
+      # finishing. Scoring them on a mid-intake turn makes the agent "fail" for
+      # not ending early, which inverts the expectation. They are selected per
+      # case via each test case's critical_checks instead. See
+      # evaluation/agents/intake/metrics.py (END_OF_INTAKE_METRICS).
+      end_of_intake_metrics:
+        - emergency_compliance
+        - intake_completion
+      # Answer Relevancy under-scores replies that ask a clarifying question,
+      # which is most of intake. Left off deliberately.
+      llm_metrics: []
+
+    pdf_chat:
+      metrics: []
+      llm_metrics:
+        - faithfulness
+
+  llm:
+    allow_external_calls: true
+    # Judge model URI. null -> MLFLOW_GENAI_JUDGE_DEFAULT_MODEL, else
+    # openai:/gpt-4.1-mini. Requires provider-native credentials such as
+    # OPENAI_API_KEY; the framework's API_KEY/BASE_URL are not used by MLflow.
+    model_uri: null
+

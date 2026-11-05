@@ -10,7 +10,7 @@ from __future__ import annotations
 import pytest
 
 from client.response import StreamEvent, StreamEventType, TextDelta, TokenUsage
-from evaluation.judge import build_judge, deepeval_installed
+from evaluation.adapters.deepeval_judge import build_judge, deepeval_installed
 
 pytestmark = pytest.mark.skipif(
     not deepeval_installed(), reason="deepeval is not installed"

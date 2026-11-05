@@ -1,6 +1,6 @@
-"""Offline evaluation dataset for the intake agent.
+"""Dataset domain models — agent-neutral, and part of the core vocabulary.
 
-The dataset is authored as "given this conversation so far, what should the next
+A dataset is authored as "given this conversation so far, what should the next
 reply be?":
 
 .. code-block:: json
@@ -8,8 +8,7 @@ reply be?":
     {
       "dataset_name": "intake_agent_offline_evaluation",
       "version": "1.0",
-      "description": "...",
-      "agent": "Intake Agent",
+      "agent": "intake",
       "test_cases": [
         {
           "test_case_id": "INTAKE_001",
@@ -23,27 +22,24 @@ reply be?":
       ]
     }
 
-``context`` carries the turns *before* ``input``. Lines prefixed ``Assistant:``
-/ ``Agent:`` replay as assistant turns and ``Patient:`` / ``User:`` as user
-turns, so the adapter can rebuild the state the case assumes. Lines without a
+``context`` carries the turns *before* ``input``. Lines prefixed ``Assistant:`` /
+``Agent:`` replay as assistant turns and ``Patient:`` / ``User:`` as user turns,
+so a case runner can rebuild the state the case assumes. Lines without a
 recognised prefix are prose state descriptions and are skipped — such a case is
 reported as not fully replayable rather than being silently mis-seeded.
 
-``critical_checks`` is the assertion vocabulary the deterministic validators are
-keyed on (e.g. ``one_question_only``, ``no_hallucination``,
-``emergency_escalation``).
+``critical_checks`` is the metric vocabulary: the names are registry metric names
+(see :mod:`evaluation.agents.intake.rules`), so a case and an agent's configuration
+speak the same language.
 """
 
 from __future__ import annotations
 
-import json
-from pathlib import Path
+from typing import Any
 
-from pydantic import BaseModel, Field, ValidationError, model_validator
+from pydantic import BaseModel, Field, model_validator
 
 from utils.errors import AgentError
-
-DEFAULT_DATASET_PATH = Path(__file__).resolve().parent / "intake_dataset.json"
 
 #: Prefix recognised when replaying ``context`` into a session.
 _ROLE_PREFIXES: dict[str, str] = {
@@ -55,7 +51,7 @@ _ROLE_PREFIXES: dict[str, str] = {
 
 
 class DatasetError(AgentError):
-    """Raised when the evaluation dataset cannot be loaded or is invalid."""
+    """Raised when an evaluation dataset cannot be loaded or is invalid."""
 
 
 class EvalCase(BaseModel):
@@ -68,7 +64,11 @@ class EvalCase(BaseModel):
         input: The patient's next message — the turn being evaluated.
         expected_output: Natural-language description of a correct reply.
         expected_behaviour: Prose behaviours the reply should exhibit.
-        critical_checks: Named assertions the deterministic validators run.
+        critical_checks: Metric names to run (registry names).
+        retrieval_context: Passages the reply should be grounded in, for
+            retrieval-backed agents.
+        tags: Free-form labels for filtering and reporting.
+        metadata: Extra, non-content context (task description, model hints).
     """
 
     test_case_id: str
@@ -78,6 +78,9 @@ class EvalCase(BaseModel):
     expected_output: str
     expected_behaviour: list[str] = Field(default_factory=list)
     critical_checks: list[str] = Field(default_factory=list)
+    retrieval_context: list[str] = Field(default_factory=list)
+    tags: list[str] = Field(default_factory=list)
+    metadata: dict[str, Any] = Field(default_factory=dict)
 
     @model_validator(mode="after")
     def _validate(self) -> "EvalCase":
@@ -109,6 +112,17 @@ class EvalCase(BaseModel):
         return [self.input]
 
     @property
+    def metric_names(self) -> tuple[str, ...]:
+        """Metric names to run for this case.
+
+        ``critical_checks`` wins; ``metadata['metrics']`` is the fallback so a
+        dataset can name metrics without using the check vocabulary.
+        """
+        if self.critical_checks:
+            return tuple(self.critical_checks)
+        return tuple(self.metadata.get("metrics", ()))
+
+    @property
     def conversation(self) -> list[tuple[str, str]]:
         """Parse ``context`` into ``(role, text)`` pairs.
 
@@ -137,7 +151,7 @@ class EvalCase(BaseModel):
 
 
 class EvalDataset(BaseModel):
-    """A named collection of evaluation cases.
+    """A named, versioned collection of evaluation cases.
 
     Attributes:
         dataset_name: Identifier for the dataset.
@@ -145,6 +159,7 @@ class EvalDataset(BaseModel):
         description: What the dataset covers.
         agent: Agent the dataset targets.
         test_cases: The evaluation cases.
+        metadata: Extra dataset-level context.
     """
 
     dataset_name: str = "intake_offline_evaluation"
@@ -152,6 +167,7 @@ class EvalDataset(BaseModel):
     description: str | None = None
     agent: str = "intake"
     test_cases: list[EvalCase]
+    metadata: dict[str, Any] = Field(default_factory=dict)
 
     @model_validator(mode="after")
     def _validate(self) -> "EvalDataset":
@@ -189,49 +205,9 @@ class EvalDataset(BaseModel):
         raise DatasetError(f"Unknown case '{case_id}'")
 
     def critical_checks(self) -> set[str]:
-        """Return every distinct critical check named by the dataset."""
-        return {check for case in self.test_cases for check in case.critical_checks}
+        """Return every distinct metric name named by the dataset."""
+        return {name for case in self.test_cases for name in case.metric_names}
 
     def not_replayable(self) -> list[str]:
         """Return ids of cases whose context cannot be fully replayed."""
         return [case.id for case in self.test_cases if not case.is_replayable]
-
-
-def load_dataset(path: str | Path | None = None) -> EvalDataset:
-    """Load and validate an evaluation dataset.
-
-    Args:
-        path: Path to the JSON file. Defaults to the bundled intake dataset.
-
-    Returns:
-        The validated dataset.
-
-    Raises:
-        DatasetError: If the file is missing, is not valid JSON, or fails
-            validation.
-    """
-    resolved = Path(path) if path is not None else DEFAULT_DATASET_PATH
-    display = str(resolved)
-
-    try:
-        raw = resolved.read_text(encoding="utf-8")
-    except OSError as exc:
-        raise DatasetError(f"Could not read dataset at {display}", cause=exc) from exc
-
-    try:
-        payload = json.loads(raw)
-    except json.JSONDecodeError as exc:
-        raise DatasetError(f"Invalid JSON in dataset {display}: {exc}") from exc
-
-    if not isinstance(payload, dict):
-        raise DatasetError(f"Invalid dataset {display}: expected a JSON object")
-
-    try:
-        return EvalDataset(**payload)
-    except ValidationError as exc:
-        raise DatasetError(
-            f"Invalid dataset {display}: {exc.error_count()} problem(s)",
-            details={"errors": exc.errors(include_url=False)},
-        ) from exc
-    except (TypeError, ValueError) as exc:
-        raise DatasetError(f"Invalid dataset {display}: {exc}") from exc

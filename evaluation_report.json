@@ -1,0 +1,57 @@
+{
+  "dataset_name": "intake_agent_offline_evaluation",
+  "dataset_version": "1.0",
+  "agent": "intake",
+  "started_at": "2026-11-04T15:10:56+00:00",
+  "duration_ms": 112631.9,
+  "summary": {
+    "cases": 1,
+    "cases_passed": 1,
+    "cases_failed": 0,
+    "checks_passed": 2,
+    "checks_total": 2,
+    "check_score": 1.0,
+    "errors": 0,
+    "skipped_checks": [],
+    "duration_ms": 112631.9
+  },
+  "llm_metrics": {
+    "status": "disabled",
+    "reason": "no llm_metrics configured"
+  },
+  "cases": [
+    {
+      "case_id": "INTAKE_002",
+      "scenario": "Patient provides multiple details at once",
+      "answer": "Thank you, Maya. Can you describe what the rash looks like—such as its color, size, or if there are any bumps or blisters?",
+      "greeting": null,
+      "ok": true,
+      "error": null,
+      "history_turns": 1,
+      "duration_ms": 112031.3,
+      "event_count": 32,
+      "tool_calls": [],
+      "execution_id": "INTAKE_002",
+      "checks": [
+        {
+          "name": "medical_boundary_compliance",
+          "passed": true,
+          "detail": "no advice language",
+          "status": "ok"
+        },
+        {
+          "name": "no_repeated_questions",
+          "passed": true,
+          "detail": "no repeated question",
+          "status": "ok"
+        }
+      ],
+      "skipped_checks": [],
+      "checks_passed": 2,
+      "checks_total": 2,
+      "check_score": 1.0,
+      "llm_scores": {},
+      "llm_reasons": {}
+    }
+  ]
+}

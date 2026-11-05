@@ -1,20 +1,23 @@
 """Run the offline intake evaluation.
 
-Usage (from the project root):
+Usage (from anywhere):
 
     uv run python test/runnabletest/evaluation/evalintake.py --all
     uv run python test/runnabletest/evaluation/evalintake.py --case INTAKE_002
     uv run python test/runnabletest/evaluation/evalintake.py --all --report evaluation_report.json
     uv run python test/runnabletest/evaluation/evalintake.py --list
+    uv run python test/runnabletest/evaluation/evalintake.py --all --llm-metrics
 
 Offline only: it drives the real ``IntakeAgent`` with the dataset in
-``evaluation/intake_dataset.json`` and scores the replies.
+``evaluation/datasets/intake/golden.json`` and scores the replies through the
+shared evaluation engine — the same engine and metrics the real-time observer
+uses.
 
-- Deterministic checks (``critical_checks``) need no LLM and always run.
-- DeepEval metrics (Answer Relevancy, Task Completion) run only when
-  ``deepeval`` is installed — ``uv pip install deepeval``. It is kept out of the
-  project lockfile on purpose: it pins ``click<8.4`` and pulls pytest into the
-  runtime environment.
+- Deterministic rules always run; they need no LLM and never flake.
+- LLM-judged metrics are MLflow's DeepEval scorers. They are **off by default**:
+  this framework handles patient data, so pass ``--llm-metrics`` to send replies
+  to an external judge. They also need provider-native credentials
+  (``OPENAI_API_KEY``), not the framework's ``API_KEY``/``BASE_URL``.
 - MLflow logging happens only when ``MLFLOW_ENABLED`` is true.
 
 Talking to the model needs a configured provider in ``.env`` (``API_KEY`` etc.).
@@ -36,8 +39,11 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 from config.loader import load_config  # noqa: E402
-from evaluation.dataset import DatasetError, load_dataset  # noqa: E402
-from evaluation.runner import EvaluationRunner  # noqa: E402
+from evaluation.core.engine import EvaluationEngine  # noqa: E402
+from evaluation.core.selection import MetricSelection  # noqa: E402
+from evaluation.datasets import DatasetError, FileDatasetSource  # noqa: E402
+from evaluation.composition import build_registry  # noqa: E402
+from evaluation.runtime.offline import OfflineRunner  # noqa: E402
 from utils.logging_config import setup_logging  # noqa: E402
 
 
@@ -72,23 +78,38 @@ def _parser() -> argparse.ArgumentParser:
         help="List the dataset cases and exit.",
     )
     parser.add_argument(
+        "--llm-metrics",
+        action="store_true",
+        help=(
+            "Allow LLM-judged metrics to call an external judge. Off by default: "
+            "replies contain patient data."
+        ),
+    )
+    parser.add_argument(
         "--no-llm-metrics",
         action="store_true",
-        help="Skip the DeepEval metrics; run only the deterministic checks.",
+        help="Keep LLM-judged metrics disabled (the default).",
     )
     parser.add_argument(
         "--judge-model",
-        metavar="MODEL",
-        default="clinical_model",
+        metavar="URI",
+        default=None,
         help=(
-            "Logical model the DeepEval judge uses (default: clinical_model, "
-            "i.e. OpenAI). The judge does not use the fallback chain."
+            "Judge model URI for LLM-judged metrics, e.g. openai:/gpt-4.1-mini. "
+            "Defaults to evaluation.llm.model_uri, then to MLflow's own default "
+            "(MLFLOW_GENAI_JUDGE_DEFAULT_MODEL)."
         ),
     )
     parser.add_argument(
         "--trace",
         action="store_true",
         help="Show each case step by step: context, agent, answer, checks, metrics.",
+    )
+    parser.add_argument(
+        "--agent",
+        metavar="NAME",
+        default="intake",
+        help="Which agent's dataset and metrics to use (default: intake).",
     )
     return parser
 
@@ -159,8 +180,9 @@ def main(argv: list[str] | None = None) -> int:
     args = _parser().parse_args(argv)
     setup_logging()
 
+    datasets = FileDatasetSource()
     try:
-        dataset = load_dataset()
+        dataset = datasets.load(args.agent)
     except DatasetError as exc:
         print(f"Dataset error: {exc}", file=sys.stderr)
         return 2
@@ -168,7 +190,10 @@ def main(argv: list[str] | None = None) -> int:
     if args.list or args.case == "":
         for case in dataset.test_cases:
             print(f"{case.id:12s} {case.scenario}")
-        print(f"\n{len(dataset.test_cases)} cases · {len(dataset.critical_checks())} checks")
+        print(f"\n{len(dataset.test_cases)} cases · {len(dataset.critical_checks())} metrics")
+        versions = datasets.versions(args.agent)
+        if versions:
+            print(f"versions: {', '.join(versions)}")
         if args.case == "":
             print("\nPick one with: --case <ID>")
         return 0
@@ -177,10 +202,27 @@ def main(argv: list[str] | None = None) -> int:
         _parser().print_help()
         return 2
 
-    runner = EvaluationRunner(
-        load_config(cwd=PROJECT_ROOT),
-        llm_metrics=not args.no_llm_metrics,
-        judge_model=args.judge_model,
+    config = load_config(cwd=PROJECT_ROOT)
+
+    # The privacy gate is an explicit opt-in on the command line: the reply text
+    # is patient data. `--no-llm-metrics` is accepted so existing invocations keep
+    # working, and means the same thing as the default.
+    allow_external = args.llm_metrics and not args.no_llm_metrics
+
+    engine = EvaluationEngine(
+        build_registry(
+            config,
+            allow_external_calls=allow_external,
+            model_uri=args.judge_model,
+        ),
+        MetricSelection.from_config(config),
+    )
+
+    runner = OfflineRunner(
+        config,
+        engine=engine,
+        dataset_source=datasets,
+        agent=args.agent,
     )
 
     if args.case:
@@ -206,11 +248,13 @@ def main(argv: list[str] | None = None) -> int:
     )
 
     if report.llm_metrics.get("status") != "ok":
-        print(f"llm metrics: {report.llm_metrics['status']} — {report.llm_metrics.get('reason', '')}")
+        reasons = report.llm_metrics.get("reasons") or report.llm_metrics.get("reason") or ""
+        detail = reasons[0] if isinstance(reasons, list) and reasons else reasons
+        print(f"llm metrics: {report.llm_metrics['status']} — {detail}")
     if summary["skipped_checks"]:
-        print(f"skipped checks: {', '.join(summary['skipped_checks'])}")
+        print(f"skipped metrics: {', '.join(summary['skipped_checks'])}")
 
-    path = EvaluationRunner.save(report, args.report)
+    path = runner.save(report, args.report)
     print(f"report: {path}")
 
     return 0 if summary["cases_failed"] == 0 else 1

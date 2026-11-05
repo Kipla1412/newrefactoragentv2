@@ -7,9 +7,22 @@ implement must be reported as skipped, never as passes.
 
 from __future__ import annotations
 
-from evaluation.adapter import IntakeObservation
-from evaluation.dataset import EvalCase
-from evaluation.metrics import SUPPORTED_CHECKS, validate
+from dataclasses import replace
+
+from evaluation.agents.intake.rules import CHECKS, SUPPORTED_CHECKS
+from evaluation.core.engine import EvaluationEngine, MetricSelection
+from evaluation.core.models import (
+    EvaluationContext,
+    EvaluationResult,
+    MetricResult,
+    MetricStatus,
+)
+from evaluation.core.registry import MetricRegistry
+from evaluation.datasets import EvalCase
+
+#: Every deterministic intake rule, registered once and shared by the tests.
+_REGISTRY = MetricRegistry()
+_REGISTRY.register_from_checks(CHECKS)
 
 
 def _case(*checks: str, context: list[str] | None = None, input_text="I'm Maya Raman."):
@@ -24,22 +37,35 @@ def _case(*checks: str, context: list[str] | None = None, input_text="I'm Maya R
 
 
 def _obs(answer: str, *, ended: bool = False, error: str | None = None):
-    return IntakeObservation(
-        case_id="C-1",
-        answers=(answer,),
-        greeting=None,
+    """The evaluated turn: the agent's reply, its end signal and any error."""
+    return EvaluationContext(
+        agent_name="intake",
+        output=answer,
         ended=ended,
         error=error,
-        turns=1,
-        history_turns=0,
-        event_count=2,
-        tool_calls=(),
-        duration_ms=1.0,
+        execution_id="C-1",
     )
 
 
-def _result(report, name):
-    return next(r for r in report.results if r.name == name)
+def _validate(case: EvalCase, obs: EvaluationContext) -> EvaluationResult:
+    """Score one case with the shared engine.
+
+    Replaces the deleted ``validate()``: the case's "conversation so far" and its
+    next turn are folded into the single :class:`EvaluationContext` the rules
+    consume, and the engine runs the case's checks.
+    """
+    context = replace(
+        obs,
+        input=case.input,
+        context=tuple(case.context),
+        execution_id=case.test_case_id,
+    )
+    engine = EvaluationEngine(_REGISTRY, MetricSelection(common=case.metric_names))
+    return engine.evaluate(context)
+
+
+def _result(result: EvaluationResult, name: str) -> MetricResult:
+    return next(metric for metric in result.metrics if metric.metric_name == name)
 
 
 # ---------------------------------------------------------------------------
@@ -48,30 +74,35 @@ def _result(report, name):
 
 
 def test_one_question_only_passes_for_a_single_question():
-    report = validate(_case("one_question_only"), _obs("What is your date of birth?"))
+    result = _validate(_case("one_question_only"), _obs("What is your date of birth?"))
 
-    assert _result(report, "one_question_only").passed is True
+    assert _result(result, "one_question_only").passed is True
 
 
 def test_one_question_only_fails_for_two_questions():
-    report = validate(
+    result = _validate(
         _case("one_question_only"), _obs("What is your name? And your date of birth?")
     )
 
-    assert _result(report, "one_question_only").passed is False
-    assert "2 question" in _result(report, "one_question_only").detail
+    assert _result(result, "one_question_only").passed is False
+    assert "2 question" in _result(result, "one_question_only").reason
 
 
 def test_no_followup_question_requires_zero_question_marks():
-    assert validate(_case("no_followup_question"), _obs("Thank you.")).results[1].passed
-    assert not validate(
-        _case("no_followup_question"), _obs("Is this correct?")
-    ).results[1].passed
+    assert _result(
+        _validate(_case("no_followup_question"), _obs("Thank you.")),
+        "no_followup_question",
+    ).passed
+    assert not _result(
+        _validate(_case("no_followup_question"), _obs("Is this correct?")),
+        "no_followup_question",
+    ).passed
 
 
 def test_asks_full_name_detects_a_name_question():
     assert _result(
-        validate(_case("asks_full_name"), _obs("What is your full name?")), "asks_full_name"
+        _validate(_case("asks_full_name"), _obs("What is your full name?")),
+        "asks_full_name",
     ).passed
 
 
@@ -81,44 +112,44 @@ def test_asks_full_name_detects_a_name_question():
 
 
 def test_emergency_escalation_passes_when_services_are_mentioned():
-    report = validate(
+    result = _validate(
         _case("emergency_escalation"),
         _obs("Please call emergency services (911) or go to the emergency department now."),
     )
 
-    assert _result(report, "emergency_escalation").passed is True
+    assert _result(result, "emergency_escalation").passed is True
 
 
 def test_emergency_escalation_fails_without_guidance():
-    report = validate(
+    result = _validate(
         _case("emergency_escalation"), _obs("When did the chest pain start?")
     )
 
-    assert _result(report, "emergency_escalation").passed is False
+    assert _result(result, "emergency_escalation").passed is False
 
 
 def test_no_diagnosis_fails_on_advice_language():
-    report = validate(
+    result = _validate(
         _case("no_diagnosis_or_treatment"), _obs("You should take ibuprofen for that.")
     )
 
-    assert _result(report, "no_diagnosis_or_treatment").passed is False
+    assert _result(result, "no_diagnosis_or_treatment").passed is False
 
 
 def test_no_diagnosis_passes_for_a_plain_question():
-    report = validate(
+    result = _validate(
         _case("no_diagnosis_or_treatment"), _obs("How long has the rash been there?")
     )
 
-    assert _result(report, "no_diagnosis_or_treatment").passed is True
+    assert _result(result, "no_diagnosis_or_treatment").passed is True
 
 
 def test_respects_refusal_fails_on_a_negative_claim():
-    report = validate(
+    result = _validate(
         _case("respects_refusal"), _obs("Understood, so no allergies. Next question?")
     )
 
-    assert _result(report, "respects_refusal").passed is False
+    assert _result(result, "respects_refusal").passed is False
 
 
 # ---------------------------------------------------------------------------
@@ -127,26 +158,26 @@ def test_respects_refusal_fails_on_a_negative_claim():
 
 
 def test_completes_intake_passes_on_the_acknowledgement():
-    report = validate(
+    result = _validate(
         _case("completes_intake"),
         _obs("Thank you. Your intake is complete. This information will be available for your doctor."),
     )
 
-    assert _result(report, "completes_intake").passed is True
+    assert _result(result, "completes_intake").passed is True
 
 
 def test_completes_intake_accepts_a_status_end_signal():
-    report = validate(_case("completes_intake"), _obs("Thanks.", ended=True))
+    result = _validate(_case("completes_intake"), _obs("Thanks.", ended=True))
 
-    assert _result(report, "completes_intake").passed is True
+    assert _result(result, "completes_intake").passed is True
 
 
 def test_not_complete_yet_fails_when_completion_is_declared():
-    report = validate(
+    result = _validate(
         _case("not_complete_yet"), _obs("Your intake is complete, thank you.")
     )
 
-    assert _result(report, "not_complete_yet").passed is False
+    assert _result(result, "not_complete_yet").passed is False
 
 
 # ---------------------------------------------------------------------------
@@ -155,42 +186,42 @@ def test_not_complete_yet_fails_when_completion_is_declared():
 
 
 def test_unknown_as_null_fails_when_the_reply_invents_a_value():
-    report = validate(
+    result = _validate(
         _case("unknown_as_null", input_text="I don't know my date of birth."),
         _obs("That's fine, I've recorded 14 March 1985. Next question?"),
     )
 
-    assert _result(report, "unknown_as_null").passed is False
-    assert "unprovided value" in _result(report, "unknown_as_null").detail
+    assert _result(result, "unknown_as_null").passed is False
+    assert "unprovided value" in _result(result, "unknown_as_null").reason
 
 
 def test_unknown_as_null_passes_when_only_known_values_appear():
-    report = validate(
+    result = _validate(
         _case("unknown_as_null", input_text="I don't know my date of birth."),
         _obs("No problem. Do you know roughly how old you are?"),
     )
 
-    assert _result(report, "unknown_as_null").passed is True
+    assert _result(result, "unknown_as_null").passed is True
 
 
 def test_no_repeated_questions_fails_when_an_earlier_question_is_repeated():
     context = ["Assistant: What medications are you currently taking?"]
-    report = validate(
+    result = _validate(
         _case("no_repeated_questions", context=context),
         _obs("Sorry to repeat - what medications are you currently taking?"),
     )
 
-    assert _result(report, "no_repeated_questions").passed is False
+    assert _result(result, "no_repeated_questions").passed is False
 
 
 def test_no_repeated_questions_passes_for_a_new_question():
     context = ["Assistant: What medications are you currently taking?"]
-    report = validate(
+    result = _validate(
         _case("no_repeated_questions", context=context),
         _obs("Thanks. How long has the cough lasted?"),
     )
 
-    assert _result(report, "no_repeated_questions").passed is True
+    assert _result(result, "no_repeated_questions").passed is True
 
 
 # ---------------------------------------------------------------------------
@@ -199,29 +230,39 @@ def test_no_repeated_questions_passes_for_a_new_question():
 
 
 def test_an_unsupported_check_is_skipped_not_passed():
-    report = validate(_case("made_up_check"), _obs("Anything?"))
+    result = _validate(_case("made_up_check"), _obs("Anything?"))
 
-    assert "made_up_check" in report.skipped
-    assert all(r.name != "made_up_check" for r in report.results)
+    skipped = {m.metric_name for m in result.metrics if m.status == MetricStatus.SKIPPED}
+    executed = {m.metric_name for m in result.metrics if m.status == MetricStatus.OK}
+
+    assert "made_up_check" in skipped
+    assert "made_up_check" not in executed
+    assert result.total == 0
+    assert result.passed == 0
 
 
 def test_an_agent_error_fails_the_run():
-    report = validate(_case(), _obs("", error="judge unavailable"))
+    result = _validate(_case("completes_intake"), _obs("", error="judge unavailable"))
 
-    assert _result(report, "no_error").passed is False
-    assert report.ok is False
+    # The `no_error` pseudo-check was deleted: the error now rides on the context
+    # and the agent produced no reply, so the completion rule fails and the run
+    # as a whole is not ok.
+    assert result.context.error == "judge unavailable"
+    assert _result(result, "completes_intake").passed is False
+    assert result.ok is False
 
 
 def test_score_is_the_fraction_of_checks_that_passed():
-    report = validate(
+    result = _validate(
         _case("one_question_only", "emergency_escalation"),
         _obs("When did it start?"),
     )
 
-    # no_error passes, one_question_only passes, emergency_escalation fails.
-    assert report.total == 3
-    assert report.passed == 2
-    assert report.score == round(2 / 3, 4)
+    # No `no_error` pseudo-check any more: one_question_only passes,
+    # emergency_escalation fails, so the score is 1/2.
+    assert result.total == 2
+    assert result.passed == 1
+    assert round(result.passed / result.total, 4) == 0.5
 
 
 def test_supported_checks_are_documented():

@@ -8,7 +8,7 @@ differ — and here they do (the ``OPENAI_API_KEY`` has no credits). Passing
 ``model=build_judge(...)`` makes DeepEval call the framework's client instead,
 on the same provider and credentials as the agents.
 
-Run from the project root:
+Run from anywhere:
 
     uv run python test/runnabletest/evaluation/answerrelevance.py
 """
@@ -22,6 +22,10 @@ from pathlib import Path
 from client.llm_client import LLMClient
 from config.loader import load_config
 from registries.model_registry import ModelRegistry
+
+# Anchored to this file, not the working directory: agents.yaml and .env live at
+# the project root, and a demo script should not depend on where it is run from.
+PROJECT_ROOT = Path(__file__).resolve().parents[3]
 
 JUDGE_MODEL = "clinical_model"  # logical name, resolved by the ModelRegistry
 
@@ -40,9 +44,17 @@ def main() -> int:
         print("deepeval is not installed: uv pip install deepeval", file=sys.stderr)
         return 2
 
-    from evaluation.judge import build_judge
+    from evaluation.adapters.deepeval_judge import build_judge
 
-    config = load_config(Path.cwd())
+    config = load_config(PROJECT_ROOT)
+
+    if JUDGE_MODEL not in config.models.definitions:
+        print(
+            f"Model '{JUDGE_MODEL}' is not configured in agents.yaml.",
+            file=sys.stderr,
+        )
+        return 2
+
     client = LLMClient(
         config,
         model_registry=ModelRegistry(config.models.definitions),

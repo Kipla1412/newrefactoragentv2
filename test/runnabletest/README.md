@@ -3,7 +3,8 @@
 Manual entry points that are **not** pytest modules. Files here are named
 without a `test_` prefix, so the suite never collects them.
 
-Run them from the project root, for example:
+Run them from anywhere — each script locates the project root from its own
+path, so `agents.yaml` and `.env` resolve regardless of the working directory:
 
 ```bash
 uv run python test/runnabletest/evaluation/evalintake.py --list

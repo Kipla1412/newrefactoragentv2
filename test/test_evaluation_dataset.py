@@ -12,8 +12,8 @@ from pathlib import Path
 
 import pytest
 
-from evaluation.dataset import (
-    DEFAULT_DATASET_PATH,
+from evaluation.datasets import (
+    dataset_path,
     DatasetError,
     EvalCase,
     EvalDataset,
@@ -91,8 +91,8 @@ def test_every_case_produces_exactly_one_prompt():
 
 
 def test_default_dataset_path_is_bundled():
-    assert DEFAULT_DATASET_PATH.name == "intake_dataset.json"
-    assert DEFAULT_DATASET_PATH.is_file()
+    assert dataset_path("intake").name == "golden.json"
+    assert dataset_path("intake").is_file()
 
 
 def test_by_id_returns_the_case():

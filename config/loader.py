@@ -148,7 +148,7 @@ def load_config(cwd: Path | None) -> Config:
         if agent_md_content:
             config_dict["developer_instructions"] = agent_md_content
 
-    # Load the YAML agent configuration (models/agents) once.
+    # Load the YAML agent configuration (models/agents/evaluation) once.
     agents_yaml_path = get_agents_yaml_path(cwd=cwd)
     if agents_yaml_path.is_file():
         try:
@@ -158,6 +158,7 @@ def load_config(cwd: Path | None) -> Config:
             config_dict = _merge_dicts(config_dict, {
                 "models": models_section,
                 "agents": agents_section,
+                "evaluation": agents_config.get("evaluation", {}) or {},
             })
         except ConfigError as e:
             logger.warning("Skipping invalid agents YAML: %s", e)

@@ -10,6 +10,7 @@ Architecture and operations notes for this framework.
 | [customagents/](customagents/README.md) | One doc per agent — files, configuration, runtime flow, contracts, testing |
 | [litellm.md](litellm.md) | The provider layer: model resolution, credential strategies, streaming, retry/fallback, routing |
 | [skills.md](skills.md) | Reusable per-request instruction sets and how an agent activates one |
+| [evaluation.md](evaluation.md) | The shared evaluation engine: layers, real-time + offline modes, metric registry, MLflow DeepEval scorers, the PHI gate |
 | [logging.md](logging.md) | The reusable logging layer: configuration, structured output, PHI/secret safety |
 
 ## Quick route map
