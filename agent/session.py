@@ -16,7 +16,8 @@ from tools.mcp.mcp_manager import MCPManager
 from tools.discovery import ToolDiscoveryManager
 from tools.registry import create_default_registry
 from utils.mlflow_tracker import get_mlflow_tracker
-from utils.logging_config import get_logger
+from utils import mlflow_tracker as mlflow_tracking
+from utils.logging_config import get_logger, prompts_enabled
 from typing import List, Dict, Any, Optional
 import asyncio
 import mlflow
@@ -57,7 +58,14 @@ class Session:
 
         # Add global MLflow tracker
         self.mlflow_tracker = get_mlflow_tracker(self.config)
+        # One run per execution, started by start_mlflow_run(). A session is not
+        # an execution, so nothing is created here — starting a run at init
+        # produced a second, empty run per session and terminated runs this
+        # session did not own.
         self.mlflow_run = None
+        # Correlation id shared with evaluation, so scores, the trace and the
+        # token usage are all found together. Assigned when the execution starts.
+        self.execution_id: str | None = None
         self.loop_detector = LoopDetector()
         self.hook_system = HookSystem(self.config)
         self.session_id = str(uuid.uuid4())
@@ -156,21 +164,10 @@ class Session:
             },
         )
 
-        # Setup MLflow run for this session (optional)
-        if self.mlflow_tracker:
-            try:
-                if mlflow.active_run():
-                    mlflow.end_run()
-                self.mlflow_run = self.mlflow_tracker.start_run("initializing")
-            except Exception as e:
-                logger.warning("MLflow tracking disabled: %s", e)
-                self.mlflow_run = None
-        else:
-
-            self.mlflow_run = None
-        # Set session ID for trace tracking
-        if self.mlflow_tracker:
-            self.mlflow_tracker.current_session_id = self.session_id
+        # End-of-execution metrics: one run per execution, started by
+        # start_mlflow_run(). Nothing is created here — a session is not an
+        # execution, and starting a run at init produced a second, empty run
+        # per session while terminating runs this session did not own.
 
     def set_tools(self, tools: list) -> None:
         """Restrict the tools available in this session.
@@ -258,18 +255,39 @@ class Session:
             yield
 
     def start_mlflow_run(self, message: str):
+        """Start the single run representing this execution.
 
+        Owns the whole lifecycle: mints the ``execution_id`` that evaluation also
+        uses, starts one run, and tags it with the correlation ids. Safe when
+        tracking is off — the run is simply None.
+
+        Args:
+            message: The user's input for this execution. Only its length is
+                tagged unless ``LOG_PROMPTS`` is on, so patient text does not
+                reach MLflow tags.
+        """
         if not self.mlflow_tracker:
+            self.mlflow_run = None
             return
-        
+
+        # A fresh id per execution, not per session. One session serves many
+        # turns and each turn is its own execution; reusing a single id made
+        # every turn after the first look like a duplicate to the evaluator.
+        self.execution_id = str(uuid.uuid4())
+
         try:
-            self.mlflow_run = self.mlflow_tracker.start_run(
-                run_name=f"{self.agent_name or 'agent'}-{self.session_id}"
+            self.mlflow_run = mlflow_tracking.begin_execution(
+                self.mlflow_tracker,
+                agent_name=self.agent_name or "unknown",
+                session_id=self.session_id,
+                execution_id=self.execution_id,
             )
-            
-            self.mlflow_tracker.set_tag("session_id", self.session_id)
-            self.mlflow_tracker.set_tag("user_message", message[:200])
-            self.mlflow_tracker.set_tag("agent_name", self.agent_name or "unknown")
+
+            if self.mlflow_run is not None:
+                if prompts_enabled():
+                    self.mlflow_tracker.set_tag("user_message", message[:200])
+                else:
+                    self.mlflow_tracker.set_tag("user_message_chars", str(len(message)))
 
         except Exception as e:
             logger.warning("Failed to start MLflow run: %s", e)
@@ -279,7 +297,7 @@ class Session:
     def end_mlflow_run(self):
 
         if self.mlflow_tracker and self.mlflow_run:
-            self.mlflow_tracker.end_run()
+            mlflow_tracking.end_execution(self.mlflow_tracker)
             self.mlflow_run = None
 
     def cleanup(self):

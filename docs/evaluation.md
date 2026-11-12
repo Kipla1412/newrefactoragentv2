@@ -163,6 +163,59 @@ With the gate closed, a listed `llm_metric` still appears in the report as
 Stored results contain only score, threshold, pass/fail, status and a bounded
 rationale. Raw inputs and outputs are never stored or logged.
 
+## MLflow: one execution, one run, one trace
+
+Agent behaviour and evaluation results are correlated by construction, so a
+single screen answers both "what did the agent do?" and "how good was it?".
+
+```
+run  (tags: execution_id, session_id, agent_name)
+ └── trace                      ← linked via mlflow.sourceRun = run_id
+      └── AGENT span            ← attributes: execution_id, session_id
+           ├── LLM span         ← model, tokens, response size
+           ├── TOOL span        ← tool name, masked arguments, success
+           └── LLM span
+ metrics on the run: prompt_tokens, completion_tokens, total_tokens,
+                     answer_relevancy.score, intake_completion.passed, duration_ms …
+```
+
+- **`execution_id` is minted once**, on the session, when the turn starts. The
+  run is tagged with it, the AGENT span carries it, and the evaluation context
+  uses it — so a run, its trace and its scores are always the same execution.
+- **The trace is linked to the run** by creating the root AGENT span with
+  `run_id=…`, which sets the trace's `mlflow.sourceRun` metadata. The UI then
+  shows both from either direction.
+- **Evaluation writes to that run**, never to a rival one: the observer passes
+  the run id through `EvaluationContext.metadata["mlflow_run_id"]`, and
+  `EvaluationTracker.log_execution(..., run_id=…)` logs there.
+- **A session creates no run.** Only an execution does. Previously a session
+  started an "initializing" run *and* terminated any run that happened to be
+  active, which scattered tokens and scores across unrelated runs.
+- **Starting an execution never ends a run it does not own** — it nests instead,
+  because `mlflow.start_run()` raises when a run is already active.
+
+### Autologging
+
+`mlflow.litellm.autolog()` is used, **not** `mlflow.openai.autolog()`:
+
+- every model call in this framework goes through `litellm.acompletion`, and the
+  litellm integration registers litellm's own success/failure callbacks, so it
+  covers every provider (OpenAI, Gemini, Ollama, Anthropic);
+- the openai integration only sees OpenAI SDK calls — it misses the other
+  providers entirely, and double-traces OpenAI ones, because LiteLLM builds an
+  `AsyncOpenAI` client underneath.
+
+Autologging is **traces only** in MLflow 3.x: it creates no runs, so it cannot
+conflict with the run this framework owns. Token metrics come from the
+framework's own logging, not from autolog.
+
+### PHI in spans
+
+Span inputs and outputs are visible in the MLflow UI, so content is withheld by
+default: spans record message counts, roles, sizes, tool *argument keys* and
+success flags. `LOG_PROMPTS=true` opts into content. Tool arguments whose names
+look sensitive (`api_key`, `token`, …) are masked either way.
+
 ## Environment variables
 
 | Variable | Purpose | Default |

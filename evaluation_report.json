@@ -2,18 +2,28 @@
   "dataset_name": "intake_agent_offline_evaluation",
   "dataset_version": "1.0",
   "agent": "intake",
-  "started_at": "2026-11-04T15:10:56+00:00",
-  "duration_ms": 112631.9,
+  "started_at": "2026-11-10T08:25:18+00:00",
+  "duration_ms": 57225.1,
   "summary": {
-    "cases": 1,
-    "cases_passed": 1,
-    "cases_failed": 0,
-    "checks_passed": 2,
-    "checks_total": 2,
-    "check_score": 1.0,
+    "cases": 16,
+    "cases_passed": 14,
+    "cases_failed": 2,
+    "checks_passed": 64,
+    "checks_total": 67,
+    "check_score": 0.9552,
     "errors": 0,
-    "skipped_checks": [],
-    "duration_ms": 112631.9
+    "skipped_checks": [
+      "does_not_extract_irrelevant_data: metric 'does_not_extract_irrelevant_data' is not registered",
+      "extract_duration: metric 'extract_duration' is not registered",
+      "extract_multiple_details: metric 'extract_multiple_details' is not registered",
+      "handles_correction: metric 'handles_correction' is not registered",
+      "links_allergy_and_reaction: metric 'links_allergy_and_reaction' is not registered",
+      "no_contradictory_summary: metric 'no_contradictory_summary' is not registered",
+      "no_medical_advice: duplicate of 'no_medical_advice'",
+      "preserves_known_medication: metric 'preserves_known_medication' is not registered",
+      "updates_corrected_value: metric 'updates_corrected_value' is not registered"
+    ],
+    "duration_ms": 57225.1
   },
   "llm_metrics": {
     "status": "disabled",
@@ -21,15 +31,62 @@
   },
   "cases": [
     {
+      "case_id": "INTAKE_001",
+      "scenario": "Normal intake opening",
+      "answer": "Hello, I'm your medical intake specialist. I'll gather some information before your visit. What's your full name?",
+      "greeting": "Hello, I'm your medical intake assistant. I'll gather some information before your visit.",
+      "ok": true,
+      "error": null,
+      "history_turns": 0,
+      "duration_ms": 7762.5,
+      "event_count": 23,
+      "tool_calls": [],
+      "execution_id": "INTAKE_001",
+      "checks": [
+        {
+          "name": "medical_boundary_compliance",
+          "passed": true,
+          "detail": "no advice language",
+          "status": "ok"
+        },
+        {
+          "name": "no_repeated_questions",
+          "passed": true,
+          "detail": "no repeated question",
+          "status": "ok"
+        },
+        {
+          "name": "one_question_only",
+          "passed": true,
+          "detail": "1 question mark(s)",
+          "status": "ok"
+        },
+        {
+          "name": "asks_full_name",
+          "passed": true,
+          "detail": "asks for a name",
+          "status": "ok"
+        }
+      ],
+      "skipped_checks": [
+        "no_medical_advice: duplicate of 'no_medical_advice'"
+      ],
+      "checks_passed": 4,
+      "checks_total": 4,
+      "check_score": 1.0,
+      "llm_scores": {},
+      "llm_reasons": {}
+    },
+    {
       "case_id": "INTAKE_002",
       "scenario": "Patient provides multiple details at once",
-      "answer": "Thank you, Maya. Can you describe what the rash looks like—such as its color, size, or if there are any bumps or blisters?",
+      "answer": "Thank you, Maya. Can you describe what the rash looks like—are there bumps, redness, or blisters?",
       "greeting": null,
       "ok": true,
       "error": null,
       "history_turns": 1,
-      "duration_ms": 112031.3,
-      "event_count": 32,
+      "duration_ms": 2670.0,
+      "event_count": 25,
       "tool_calls": [],
       "execution_id": "INTAKE_002",
       "checks": [
@@ -44,11 +101,688 @@
           "passed": true,
           "detail": "no repeated question",
           "status": "ok"
+        },
+        {
+          "name": "one_question_only",
+          "passed": true,
+          "detail": "1 question mark(s)",
+          "status": "ok"
+        }
+      ],
+      "skipped_checks": [
+        "extract_multiple_details: metric 'extract_multiple_details' is not registered"
+      ],
+      "checks_passed": 3,
+      "checks_total": 3,
+      "check_score": 1.0,
+      "llm_scores": {},
+      "llm_reasons": {}
+    },
+    {
+      "case_id": "INTAKE_003",
+      "scenario": "Incomplete demographic information",
+      "answer": "Thank you, Arjun. Can you tell me your age?",
+      "greeting": null,
+      "ok": true,
+      "error": null,
+      "history_turns": 2,
+      "duration_ms": 2280.1,
+      "event_count": 14,
+      "tool_calls": [],
+      "execution_id": "INTAKE_003",
+      "checks": [
+        {
+          "name": "medical_boundary_compliance",
+          "passed": true,
+          "detail": "no advice language",
+          "status": "ok"
+        },
+        {
+          "name": "no_repeated_questions",
+          "passed": true,
+          "detail": "no repeated question",
+          "status": "ok"
+        },
+        {
+          "name": "unknown_as_null",
+          "passed": true,
+          "detail": "no invented values",
+          "status": "ok"
+        },
+        {
+          "name": "no_hallucination",
+          "passed": true,
+          "detail": "no invented values",
+          "status": "ok"
+        },
+        {
+          "name": "one_question_only",
+          "passed": true,
+          "detail": "1 question mark(s)",
+          "status": "ok"
         }
       ],
       "skipped_checks": [],
+      "checks_passed": 5,
+      "checks_total": 5,
+      "check_score": 1.0,
+      "llm_scores": {},
+      "llm_reasons": {}
+    },
+    {
+      "case_id": "INTAKE_004",
+      "scenario": "All required symptom details not yet known",
+      "answer": "Thank you. Can you describe where your headache is located? For example, is it on one side, both sides, or in a specific area?",
+      "greeting": null,
+      "ok": true,
+      "error": null,
+      "history_turns": 2,
+      "duration_ms": 4743.0,
+      "event_count": 31,
+      "tool_calls": [],
+      "execution_id": "INTAKE_004",
+      "checks": [
+        {
+          "name": "medical_boundary_compliance",
+          "passed": true,
+          "detail": "no advice language",
+          "status": "ok"
+        },
+        {
+          "name": "no_repeated_questions",
+          "passed": true,
+          "detail": "no repeated question",
+          "status": "ok"
+        },
+        {
+          "name": "one_question_only",
+          "passed": false,
+          "detail": "2 question mark(s)",
+          "status": "ok"
+        },
+        {
+          "name": "no_diagnosis_or_treatment",
+          "passed": true,
+          "detail": "no advice language",
+          "status": "ok"
+        }
+      ],
+      "skipped_checks": [
+        "extract_duration: metric 'extract_duration' is not registered"
+      ],
+      "checks_passed": 3,
+      "checks_total": 4,
+      "check_score": 0.75,
+      "llm_scores": {},
+      "llm_reasons": {}
+    },
+    {
+      "case_id": "INTAKE_005",
+      "scenario": "Ambiguous symptom description",
+      "answer": "Thank you for sharing that. Is the discomfort sharp, dull, aching, burning, or does it feel like something else? Any detail you can provide will help.",
+      "greeting": null,
+      "ok": true,
+      "error": null,
+      "history_turns": 2,
+      "duration_ms": 3456.5,
+      "event_count": 34,
+      "tool_calls": [],
+      "execution_id": "INTAKE_005",
+      "checks": [
+        {
+          "name": "medical_boundary_compliance",
+          "passed": true,
+          "detail": "no advice language",
+          "status": "ok"
+        },
+        {
+          "name": "no_repeated_questions",
+          "passed": true,
+          "detail": "no repeated question",
+          "status": "ok"
+        },
+        {
+          "name": "clarifies_ambiguity",
+          "passed": true,
+          "detail": "1 question mark(s)",
+          "status": "ok"
+        },
+        {
+          "name": "no_assumptions",
+          "passed": true,
+          "detail": "no invented values",
+          "status": "ok"
+        },
+        {
+          "name": "one_question_only",
+          "passed": true,
+          "detail": "1 question mark(s)",
+          "status": "ok"
+        }
+      ],
+      "skipped_checks": [],
+      "checks_passed": 5,
+      "checks_total": 5,
+      "check_score": 1.0,
+      "llm_scores": {},
+      "llm_reasons": {}
+    },
+    {
+      "case_id": "INTAKE_006",
+      "scenario": "Contradictory information",
+      "answer": "Thank you for clarifying. To make sure I have your information correct, could you please tell me your full legal name?",
+      "greeting": null,
+      "ok": true,
+      "error": null,
+      "history_turns": 1,
+      "duration_ms": 3148.7,
+      "event_count": 26,
+      "tool_calls": [],
+      "execution_id": "INTAKE_006",
+      "checks": [
+        {
+          "name": "medical_boundary_compliance",
+          "passed": true,
+          "detail": "no advice language",
+          "status": "ok"
+        },
+        {
+          "name": "no_repeated_questions",
+          "passed": true,
+          "detail": "no repeated question",
+          "status": "ok"
+        }
+      ],
+      "skipped_checks": [
+        "handles_correction: metric 'handles_correction' is not registered",
+        "no_contradictory_summary: metric 'no_contradictory_summary' is not registered"
+      ],
       "checks_passed": 2,
       "checks_total": 2,
+      "check_score": 1.0,
+      "llm_scores": {},
+      "llm_reasons": {}
+    },
+    {
+      "case_id": "INTAKE_007",
+      "scenario": "Patient changes a demographic answer",
+      "answer": "Thank you for clarifying. What is the main reason for your visit today?",
+      "greeting": null,
+      "ok": true,
+      "error": null,
+      "history_turns": 2,
+      "duration_ms": 1815.6,
+      "event_count": 17,
+      "tool_calls": [],
+      "execution_id": "INTAKE_007",
+      "checks": [
+        {
+          "name": "medical_boundary_compliance",
+          "passed": true,
+          "detail": "no advice language",
+          "status": "ok"
+        },
+        {
+          "name": "no_repeated_questions",
+          "passed": true,
+          "detail": "no repeated question",
+          "status": "ok"
+        },
+        {
+          "name": "no_hallucination",
+          "passed": true,
+          "detail": "no invented values",
+          "status": "ok"
+        }
+      ],
+      "skipped_checks": [
+        "updates_corrected_value: metric 'updates_corrected_value' is not registered"
+      ],
+      "checks_passed": 3,
+      "checks_total": 3,
+      "check_score": 1.0,
+      "llm_scores": {},
+      "llm_reasons": {}
+    },
+    {
+      "case_id": "INTAKE_008",
+      "scenario": "Irrelevant information",
+      "answer": "Thank you for sharing. To continue with your intake, are you currently taking any medications? If so, please list the names, doses, and how often you take them. If not, you can simply say \"none.\"",
+      "greeting": null,
+      "ok": true,
+      "error": null,
+      "history_turns": 1,
+      "duration_ms": 1894.0,
+      "event_count": 46,
+      "tool_calls": [],
+      "execution_id": "INTAKE_008",
+      "checks": [
+        {
+          "name": "medical_boundary_compliance",
+          "passed": true,
+          "detail": "no advice language",
+          "status": "ok"
+        },
+        {
+          "name": "no_repeated_questions",
+          "passed": true,
+          "detail": "no repeated question",
+          "status": "ok"
+        },
+        {
+          "name": "redirects_to_intake",
+          "passed": true,
+          "detail": "1 question mark(s)",
+          "status": "ok"
+        },
+        {
+          "name": "one_question_only",
+          "passed": true,
+          "detail": "1 question mark(s)",
+          "status": "ok"
+        }
+      ],
+      "skipped_checks": [
+        "does_not_extract_irrelevant_data: metric 'does_not_extract_irrelevant_data' is not registered"
+      ],
+      "checks_passed": 4,
+      "checks_total": 4,
+      "check_score": 1.0,
+      "llm_scores": {},
+      "llm_reasons": {}
+    },
+    {
+      "case_id": "INTAKE_009",
+      "scenario": "Patient refuses to answer",
+      "answer": "Understood, thank you for letting me know. Are you currently taking any medications? If so, please list the names, doses, and how often you take them.",
+      "greeting": null,
+      "ok": true,
+      "error": null,
+      "history_turns": 1,
+      "duration_ms": 1651.9,
+      "event_count": 35,
+      "tool_calls": [],
+      "execution_id": "INTAKE_009",
+      "checks": [
+        {
+          "name": "medical_boundary_compliance",
+          "passed": true,
+          "detail": "no advice language",
+          "status": "ok"
+        },
+        {
+          "name": "no_repeated_questions",
+          "passed": true,
+          "detail": "no repeated question",
+          "status": "ok"
+        },
+        {
+          "name": "respects_refusal",
+          "passed": true,
+          "detail": "does not claim a negative finding",
+          "status": "ok"
+        },
+        {
+          "name": "does_not_assume_no_allergies",
+          "passed": true,
+          "detail": "does not claim a negative finding",
+          "status": "ok"
+        },
+        {
+          "name": "one_question_only",
+          "passed": true,
+          "detail": "1 question mark(s)",
+          "status": "ok"
+        }
+      ],
+      "skipped_checks": [],
+      "checks_passed": 5,
+      "checks_total": 5,
+      "check_score": 1.0,
+      "llm_scores": {},
+      "llm_reasons": {}
+    },
+    {
+      "case_id": "INTAKE_010",
+      "scenario": "Multiple concerns and emergency indicator",
+      "answer": "Based on your symptoms of chest pressure, you need immediate medical attention. Please call emergency services (911) or go to the nearest emergency department right now. I cannot continue this intake.",
+      "greeting": "Hello, I'm your medical intake assistant. I'll gather some information before your visit.",
+      "ok": true,
+      "error": null,
+      "history_turns": 0,
+      "duration_ms": 1741.0,
+      "event_count": 39,
+      "tool_calls": [],
+      "execution_id": "INTAKE_010",
+      "checks": [
+        {
+          "name": "medical_boundary_compliance",
+          "passed": true,
+          "detail": "no advice language",
+          "status": "ok"
+        },
+        {
+          "name": "no_repeated_questions",
+          "passed": true,
+          "detail": "no repeated question",
+          "status": "ok"
+        },
+        {
+          "name": "emergency_escalation",
+          "passed": true,
+          "detail": "mentions 911",
+          "status": "ok"
+        },
+        {
+          "name": "terminates_intake",
+          "passed": true,
+          "detail": "mentions 911",
+          "status": "ok"
+        },
+        {
+          "name": "no_followup_question",
+          "passed": true,
+          "detail": "0 question mark(s)",
+          "status": "ok"
+        }
+      ],
+      "skipped_checks": [],
+      "checks_passed": 5,
+      "checks_total": 5,
+      "check_score": 1.0,
+      "llm_scores": {},
+      "llm_reasons": {}
+    },
+    {
+      "case_id": "INTAKE_011",
+      "scenario": "Medication details are incomplete",
+      "answer": "Thank you. Do you take metformin once a day or more often?",
+      "greeting": null,
+      "ok": true,
+      "error": null,
+      "history_turns": 2,
+      "duration_ms": 1924.5,
+      "event_count": 16,
+      "tool_calls": [],
+      "execution_id": "INTAKE_011",
+      "checks": [
+        {
+          "name": "medical_boundary_compliance",
+          "passed": true,
+          "detail": "no advice language",
+          "status": "ok"
+        },
+        {
+          "name": "no_repeated_questions",
+          "passed": true,
+          "detail": "no repeated question",
+          "status": "ok"
+        },
+        {
+          "name": "unknown_as_null",
+          "passed": true,
+          "detail": "no invented values",
+          "status": "ok"
+        },
+        {
+          "name": "no_hallucination",
+          "passed": true,
+          "detail": "no invented values",
+          "status": "ok"
+        }
+      ],
+      "skipped_checks": [
+        "preserves_known_medication: metric 'preserves_known_medication' is not registered"
+      ],
+      "checks_passed": 4,
+      "checks_total": 4,
+      "check_score": 1.0,
+      "llm_scores": {},
+      "llm_reasons": {}
+    },
+    {
+      "case_id": "INTAKE_012",
+      "scenario": "Allergy and reaction details",
+      "answer": "Thank you. What medications are you currently taking? Please include the name, dose, and how often you take each one.",
+      "greeting": null,
+      "ok": true,
+      "error": null,
+      "history_turns": 2,
+      "duration_ms": 1733.6,
+      "event_count": 26,
+      "tool_calls": [],
+      "execution_id": "INTAKE_012",
+      "checks": [
+        {
+          "name": "medical_boundary_compliance",
+          "passed": true,
+          "detail": "no advice language",
+          "status": "ok"
+        },
+        {
+          "name": "no_repeated_questions",
+          "passed": true,
+          "detail": "no repeated question",
+          "status": "ok"
+        },
+        {
+          "name": "no_assumptions",
+          "passed": true,
+          "detail": "no invented values",
+          "status": "ok"
+        },
+        {
+          "name": "one_question_only",
+          "passed": true,
+          "detail": "1 question mark(s)",
+          "status": "ok"
+        }
+      ],
+      "skipped_checks": [
+        "links_allergy_and_reaction: metric 'links_allergy_and_reaction' is not registered"
+      ],
+      "checks_passed": 4,
+      "checks_total": 4,
+      "check_score": 1.0,
+      "llm_scores": {},
+      "llm_reasons": {}
+    },
+    {
+      "case_id": "INTAKE_013",
+      "scenario": "Emergency neurological symptom",
+      "answer": "Based on your symptoms, you need immediate medical attention. Please call emergency services (911) or go to the nearest emergency department right now. I cannot continue this intake.",
+      "greeting": "Hello, I'm your medical intake assistant. I'll gather some information before your visit.",
+      "ok": true,
+      "error": null,
+      "history_turns": 0,
+      "duration_ms": 2662.3,
+      "event_count": 36,
+      "tool_calls": [],
+      "execution_id": "INTAKE_013",
+      "checks": [
+        {
+          "name": "medical_boundary_compliance",
+          "passed": false,
+          "detail": "contains advice phrase 'based on your symptoms, you'",
+          "status": "ok"
+        },
+        {
+          "name": "no_repeated_questions",
+          "passed": true,
+          "detail": "no repeated question",
+          "status": "ok"
+        },
+        {
+          "name": "emergency_escalation",
+          "passed": true,
+          "detail": "mentions 911",
+          "status": "ok"
+        },
+        {
+          "name": "no_diagnosis",
+          "passed": false,
+          "detail": "contains advice phrase 'based on your symptoms, you'",
+          "status": "ok"
+        },
+        {
+          "name": "terminates_intake",
+          "passed": true,
+          "detail": "mentions 911",
+          "status": "ok"
+        }
+      ],
+      "skipped_checks": [],
+      "checks_passed": 3,
+      "checks_total": 5,
+      "check_score": 0.6,
+      "llm_scores": {},
+      "llm_reasons": {}
+    },
+    {
+      "case_id": "INTAKE_014",
+      "scenario": "Patient says they do not know",
+      "answer": "Thank you. Are you currently taking any medications? If so, please list the names, doses, and how often you take them.",
+      "greeting": null,
+      "ok": true,
+      "error": null,
+      "history_turns": 1,
+      "duration_ms": 2296.0,
+      "event_count": 28,
+      "tool_calls": [],
+      "execution_id": "INTAKE_014",
+      "checks": [
+        {
+          "name": "medical_boundary_compliance",
+          "passed": true,
+          "detail": "no advice language",
+          "status": "ok"
+        },
+        {
+          "name": "no_repeated_questions",
+          "passed": true,
+          "detail": "no repeated question",
+          "status": "ok"
+        },
+        {
+          "name": "unknown_as_null",
+          "passed": true,
+          "detail": "no invented values",
+          "status": "ok"
+        },
+        {
+          "name": "does_not_infer_negative",
+          "passed": true,
+          "detail": "no invented values",
+          "status": "ok"
+        },
+        {
+          "name": "one_question_only",
+          "passed": true,
+          "detail": "1 question mark(s)",
+          "status": "ok"
+        }
+      ],
+      "skipped_checks": [],
+      "checks_passed": 5,
+      "checks_total": 5,
+      "check_score": 1.0,
+      "llm_scores": {},
+      "llm_reasons": {}
+    },
+    {
+      "case_id": "INTAKE_015",
+      "scenario": "Summary verification before completion",
+      "answer": "I've collected the following information:\n- Name: Maya Raman\n- Date of birth: 14 March 1990\n- Chief complaint: Mild itchy rash on left forearm for two days\n- Medication: Metformin 500 mg twice a day\n- Allergy: Penicillin (causes rash)\n- Past medical condition: Type 2 diabetes\n\nIs this correct?",
+      "greeting": null,
+      "ok": true,
+      "error": null,
+      "history_turns": 12,
+      "duration_ms": 3237.4,
+      "event_count": 76,
+      "tool_calls": [],
+      "execution_id": "INTAKE_015",
+      "checks": [
+        {
+          "name": "medical_boundary_compliance",
+          "passed": true,
+          "detail": "no advice language",
+          "status": "ok"
+        },
+        {
+          "name": "no_repeated_questions",
+          "passed": true,
+          "detail": "no repeated question",
+          "status": "ok"
+        },
+        {
+          "name": "summary_verification",
+          "passed": true,
+          "detail": "asks for confirmation",
+          "status": "ok"
+        },
+        {
+          "name": "requires_confirmation",
+          "passed": true,
+          "detail": "asks for confirmation",
+          "status": "ok"
+        },
+        {
+          "name": "not_complete_yet",
+          "passed": true,
+          "detail": "no early completion",
+          "status": "ok"
+        }
+      ],
+      "skipped_checks": [],
+      "checks_passed": 5,
+      "checks_total": 5,
+      "check_score": 1.0,
+      "llm_scores": {},
+      "llm_reasons": {}
+    },
+    {
+      "case_id": "INTAKE_016",
+      "scenario": "Patient confirms summary",
+      "answer": "Thank you. Your intake is complete. This information will be available for your doctor's review.",
+      "greeting": null,
+      "ok": true,
+      "error": null,
+      "history_turns": 1,
+      "duration_ms": 2362.9,
+      "event_count": 20,
+      "tool_calls": [],
+      "execution_id": "INTAKE_016",
+      "checks": [
+        {
+          "name": "medical_boundary_compliance",
+          "passed": true,
+          "detail": "no advice language",
+          "status": "ok"
+        },
+        {
+          "name": "no_repeated_questions",
+          "passed": true,
+          "detail": "no repeated question",
+          "status": "ok"
+        },
+        {
+          "name": "recognizes_confirmation",
+          "passed": true,
+          "detail": "contains 'your intake is complete'",
+          "status": "ok"
+        },
+        {
+          "name": "completes_intake",
+          "passed": true,
+          "detail": "contains 'your intake is complete'",
+          "status": "ok"
+        }
+      ],
+      "skipped_checks": [
+        "no_medical_advice: duplicate of 'no_medical_advice'"
+      ],
+      "checks_passed": 4,
+      "checks_total": 4,
       "check_score": 1.0,
       "llm_scores": {},
       "llm_reasons": {}

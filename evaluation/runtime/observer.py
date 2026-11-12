@@ -214,10 +214,16 @@ class EvaluationObserver:
             )
 
     def _publish(self, result: EvaluationResult) -> None:
-        """Hand a finished result to the tracker and callback, best-effort."""
+        """Hand a finished result to the tracker and callback, best-effort.
+
+        The tracker is given the execution's own ``run_id`` when the context
+        carries one, so the scores land on the run that already holds the trace
+        and token usage rather than creating a second run for the execution.
+        """
         if self._tracker is not None:
             try:
-                self._tracker.log_execution(result)
+                run_id = result.context.metadata.get("mlflow_run_id")
+                self._tracker.log_execution(result, run_id=run_id)
             except Exception as exc:  # noqa: BLE001 - tracking is best-effort
                 logger.warning("Tracker failed for a real-time result: %s", exc)
 

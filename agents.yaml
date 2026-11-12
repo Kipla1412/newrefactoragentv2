@@ -94,10 +94,15 @@ evaluation:
   enabled: true
 
   realtime:
-    enabled: false          # live per-turn evaluation; off until opted in
+    enabled: true        # live per-turn evaluation
     asynchronous: true
     max_concurrency: 2
     timeout: 60
+    # Semantic metrics (answer_relevancy, …) on live traffic are OFF: they call
+    # an external judge on every turn — cost, latency, and patient text leaving
+    # the process in real time. The same metrics still run for offline
+    # evaluation, where a human reviews the report before anything depends on it.
+    allow_llm_metrics: false
 
   offline:
     enabled: true
@@ -107,19 +112,16 @@ evaluation:
   agents:
 
     intake:
-      # Per-turn rules: these judge how the agent *behaves* mid-intake, so they
-      # must run on every turn.
+      # Per-turn rules: how the agent *behaves* while intake is in progress.
       metrics:
         - medical_boundary_compliance
         - no_repeated_questions
-      # End-of-intake outcome rules: these only apply when intake is actually
-      # finishing. Scoring them on a mid-intake turn makes the agent "fail" for
-      # not ending early, which inverts the expectation. They are selected per
-      # case via each test case's critical_checks instead. See
-      # evaluation/agents/intake/metrics.py (END_OF_INTAKE_METRICS).
-      end_of_intake_metrics:
-        - emergency_compliance
-        - intake_completion
+      # Outcome rules (emergency escalation, intake completion, summary
+      # verification) are NOT listed here on purpose. They fail by construction
+      # on an ordinary mid-intake turn, so each dataset case requests the ones it
+      # expects through its own `critical_checks` — the offline runner adds them
+      # to the selection for that case. See evaluation/runtime/offline.py
+      # (_engine_for).
       # Answer Relevancy under-scores replies that ask a clarifying question,
       # which is most of intake. Left off deliberately.
       llm_metrics: []

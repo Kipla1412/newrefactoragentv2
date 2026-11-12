@@ -121,8 +121,16 @@ def build_observer(
     if enabled is None:
         enabled = _realtime_enabled(config)
 
+    if engine is None:
+        # Real-time uses its own selection: deterministic metrics only, unless
+        # `evaluation.realtime.allow_llm_metrics` opts into per-turn semantic
+        # scoring. See MetricSelection.from_config.
+        engine = build_engine(
+            config, selection=MetricSelection.from_config(config, realtime=True)
+        )
+
     return EvaluationObserver(
-        engine if engine is not None else build_engine(config),
+        engine,
         tracker=tracker,
         on_result=on_result,
         max_concurrency=_realtime_int(config, "max_concurrency", 2),
@@ -141,6 +149,68 @@ def build_offline_runner(config: Any, **overrides: Any) -> "OfflineRunner":  # n
 
     overrides.setdefault("engine", build_engine(config))
     return OfflineRunner(config, **overrides)
+
+
+#: The process-wide real-time observer. One per process, like the MLflow tracker
+#: (`get_mlflow_tracker`): an engine rebuilds the registry and every metric, which
+#: is far too expensive to do per agent or per request.
+_observer: Any | None = None
+_observer_built = False
+
+
+def get_observer(config: Any = None) -> Any | None:
+    """Return the process-wide real-time observer, building it once.
+
+    Returns:
+        The observer, or None when real-time evaluation is disabled (the
+        default) or cannot be built. Callers treat None as "no evaluation".
+    """
+    global _observer, _observer_built
+
+    if not _realtime_enabled(config):
+        return None
+
+    if not _observer_built:
+        _observer_built = True
+        try:
+            _observer = build_observer(config)
+        except Exception as exc:  # noqa: BLE001 - evaluation is optional
+            logger.warning("Real-time evaluation is unavailable: %s", exc)
+            _observer = None
+
+    return _observer
+
+
+def reset_observer() -> None:
+    """Drop the cached observer (used by tests and on config reload)."""
+    global _observer, _observer_built
+    _observer = None
+    _observer_built = False
+
+
+def attach_observer(agent: Any, config: Any = None) -> bool:
+    """Attach the real-time observer to an agent, when one is available.
+
+    Called wherever agents are built, so every agent gets evaluation without each
+    call site knowing about it. Never raises: an agent that cannot be evaluated
+    must still be usable.
+
+    Args:
+        agent: The agent instance to attach to.
+        config: Runtime configuration.
+
+    Returns:
+        True when an observer was attached.
+    """
+    try:
+        observer = get_observer(config)
+        if observer is None:
+            return False
+        agent.evaluation_observer = observer
+        return True
+    except Exception as exc:  # noqa: BLE001 - evaluation is optional
+        logger.debug("Real-time evaluation not attached: %s", exc)
+        return False
 
 
 def _realtime_section(config: Any) -> Any:

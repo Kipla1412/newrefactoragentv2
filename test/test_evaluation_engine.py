@@ -191,6 +191,36 @@ class TestMetricSelection:
         selection = MetricSelection(per_agent={"intake": (), "pdf_chat": ()})
         assert selection.agents() == ("intake", "pdf_chat")
 
+    def test_with_extra_adds_names_for_one_agent(self):
+        selection = MetricSelection(common=("a",), per_agent={"intake": ("b",)})
+
+        extended = selection.with_extra("intake", ("c", "d"))
+
+        assert extended.for_agent("intake") == ("a", "b", "c", "d")
+        assert extended.for_agent("other") == ("a",)
+
+    def test_with_extra_leaves_the_original_untouched(self):
+        selection = MetricSelection(per_agent={"intake": ("b",)})
+
+        selection.with_extra("intake", ("c",))
+
+        assert selection.for_agent("intake") == ("b",), "selection is immutable"
+
+    def test_with_extra_creates_an_agent_entry_when_absent(self):
+        selection = MetricSelection(common=("a",))
+
+        extended = selection.with_extra("intake", ("b",))
+
+        assert extended.for_agent("intake") == ("a", "b")
+        assert extended.agents() == ("intake",)
+
+    def test_with_extra_does_not_duplicate(self):
+        selection = MetricSelection(per_agent={"intake": ("b",)})
+
+        extended = selection.with_extra("intake", ("b", "c"))
+
+        assert extended.for_agent("intake") == ("b", "c")
+
 
 class TestEngine:
     def test_unconfigured_engine_evaluates_nothing(self):

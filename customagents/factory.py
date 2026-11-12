@@ -32,6 +32,7 @@ from customagents.voiceagent.voiceintake import VoiceIntakeAgent
 from config.config import Config
 from config.schemas import AgentYaml
 from agent.session import Session
+from evaluation.composition import attach_observer
 
 # Default name → class mapping. This is the ONE place concretions are
 # referenced; new agents are registered here (or at runtime through the
@@ -180,10 +181,31 @@ class AgentFactory:
         # The agent's configured skill and display name, so a config-driven
         # agent knows what to activate and how to identify itself.
         default_skill = agent_yaml.skill if agent_yaml else None
-        configured_name = agent_yaml.agent_name if agent_yaml else None
+        # Fall back to the agent-type key ("intake"). That key is what
+        # `evaluation.agents.<name>` and the dataset's metric configuration are
+        # keyed on, so without it an agent's class name ("IntakeAgent") matched
+        # no metrics and evaluation silently did nothing.
+        configured_name = (agent_yaml.agent_name if agent_yaml else None) or name
         components.overrides.apply(
             agent, prompt, tools, default_skill, configured_name
         )
+
+        # 6. Real-time evaluation, when it is enabled. Done here because this is
+        # the single place agents are constructed, so every entry point — API
+        # routers, CLI, workflow — gets evaluation without knowing about it.
+        # Attached after the overrides so the agent already carries the
+        # configured name that metric configuration is keyed on. Best-effort:
+        # an agent must be usable even if evaluation cannot be set up.
+        attach_observer(agent, config)
+
+        # 7. Name the session after the configured agent, not the class. Runs and
+        # spans are tagged from the session name, so this makes a run filterable
+        # by the same key that selects its metrics ("intake", not "IntakeAgent").
+        if configured_name:
+            try:
+                agent.session.agent_name = configured_name
+            except Exception:  # noqa: BLE001 - naming is cosmetic
+                pass
 
         return agent
 

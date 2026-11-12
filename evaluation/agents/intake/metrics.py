@@ -3,6 +3,16 @@
 Registers the deterministic clinical rules plus the clinical-facing names used in
 configuration. Nothing is reimplemented: an alias shares its target's
 ``canonical_name``, so configuring both measures the rule once.
+
+Two kinds of rule live in :data:`~evaluation.agents.intake.rules.CHECKS`:
+
+- **per-turn** — how the agent behaves while intake is in progress
+  (:data:`DEFAULT_METRICS`, listed in ``agents.yaml``).
+- **outcome** — emergency escalation, completion acknowledgement, summary
+  verification. These fail by construction on an ordinary mid-intake turn, so
+  they are not configured per agent; each dataset case requests the ones it
+  expects through its ``critical_checks``, which the offline runner adds for that
+  case (see ``evaluation/runtime/offline.py::OfflineRunner._engine_for``).
 """
 
 from __future__ import annotations
@@ -17,27 +27,13 @@ ALIASES: dict[str, str] = {
     "intake_completion": "completes_intake",
 }
 
-#: Metrics the Intake Agent runs by default (see ``agents.yaml``).
+#: Metrics the Intake Agent runs on every turn (see ``agents.yaml``).
 #:
-#: These are **per-turn** rules: how the agent behaves while intake is in
-#: progress. Correctly, most of them pass only when the turn does *not* carry a
-#: clinical action (asking a question, not diagnosing).
+#: Correctly, these pass when the turn carries no clinical action: the agent asks
+#: a question rather than diagnosing, and does not repeat an earlier question.
 DEFAULT_METRICS: tuple[str, ...] = (
     "medical_boundary_compliance",
     "no_repeated_questions",
-)
-
-#: End-of-intake outcome rules.
-#:
-#: These only make sense when intake is finishing — an emergency, or a completed
-#: summary. Applied to a normal mid-intake turn they would fail, so they are NOT
-#: part of the default set: they run when a test case asks for them in
-#: ``critical_checks`` (``emergency_escalation``, ``emergency_compliance``,
-#: ``completes_intake``, ``intake_completion``). Keeping them out of the default
-#: set is what stops "did not end the intake early" being scored as a failure.
-END_OF_INTAKE_METRICS: tuple[str, ...] = (
-    "emergency_compliance",
-    "intake_completion",
 )
 
 

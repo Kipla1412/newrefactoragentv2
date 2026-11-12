@@ -172,12 +172,24 @@ class KnowledgeConfig(BaseModel):
 
 
 class EvaluationRealtimeConfig(BaseModel):
-    """Real-time evaluation settings."""
+    """Real-time (live, per-turn) evaluation settings.
+
+    Attributes:
+        enabled: Whether live executions are evaluated at all.
+        asynchronous: Evaluate in the background, never in the response path.
+        max_concurrency: How many evaluations may run at once.
+        timeout: Per-evaluation timeout in seconds.
+        allow_llm_metrics: Whether semantic metrics may run per turn. **Off by
+            default**: they call an external judge on every turn, which is real
+            cost and latency and sends reply text out live. Offline evaluation
+            includes them regardless.
+    """
 
     enabled: bool = False
     asynchronous: bool = True
     max_concurrency: int = 2
     timeout: float = 60.0
+    allow_llm_metrics: bool = False
 
 
 class EvaluationLLMConfig(BaseModel):
@@ -210,15 +222,17 @@ class EvaluationAgentConfig(BaseModel):
 
     Attributes:
         metrics: Deterministic metric names that run on every turn.
-        end_of_intake_metrics: Deterministic metric names that only apply when
-            an agent is finishing (for intake: escalation and completion). These
-            never run on a mid-flow turn; they are selected per case via that
-            case's ``critical_checks``.
         llm_metrics: LLM-judged metric names (gated by ``llm.allow_external_calls``).
+
+    Outcome rules that only make sense at the end of a conversation (emergency
+    escalation, completion acknowledgement, summary verification) are **not**
+    configured here: a dataset case requests them through its own
+    ``critical_checks``, which the offline runner adds to the selection for that
+    case. Running them per turn marked the agent wrong for not ending the
+    conversation early.
     """
 
     metrics: list[str] = Field(default_factory=list)
-    end_of_intake_metrics: list[str] = Field(default_factory=list)
     llm_metrics: list[str] = Field(default_factory=list)
 
 

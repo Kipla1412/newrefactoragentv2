@@ -166,8 +166,9 @@ class OfflineRunner:
             for case in cases:
                 # Phase 1: execute (inside an event loop).
                 context = asyncio.run(self._case_runner.run_case(case))
-                # Phase 2: score (synchronous engine).
-                evaluation = self._engine.evaluate(context)
+                # Phase 2: score (synchronous engine), with the metrics this
+                # case itself asks for added to the agent's configured set.
+                evaluation = self._engine_for(case).evaluate(context)
 
                 evaluations.append(evaluation)
                 self._tracker.log_execution(evaluation, case=case.id, scenario=case.scenario)
@@ -203,6 +204,26 @@ class OfflineRunner:
 
         finally:
             self._tracker.end()
+
+    def _engine_for(self, case: EvalCase) -> EvaluationEngine:
+        """The engine for one case: the agent's metrics plus the case's own.
+
+        A dataset case declares what it expects through ``critical_checks``
+        (``EvalCase.metric_names``). Those are often *outcome* rules —
+        emergency escalation, completion acknowledgement, summary verification —
+        which fail by construction on an ordinary mid-intake turn. Requesting
+        them per case is what lets one dataset contain both kinds of turn.
+
+        A name the framework does not implement resolves to ``skipped`` with the
+        reason, so a gap in the rule library is visible rather than silently
+        passing.
+        """
+        requested = case.metric_names
+        if not requested:
+            return self._engine
+
+        selection = self._engine.selection.with_extra(self.agent_name, requested)
+        return EvaluationEngine(self._engine.registry, selection)
 
     def _llm_metric_names(self, agent_name: str) -> tuple[str, ...]:
         """Names backed by an LLM judge, so a semantic score is never read as a rule."""

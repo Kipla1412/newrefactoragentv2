@@ -126,26 +126,46 @@ class EvaluationTracker:
 
     # Per-execution results (offline and real-time)
 
-    def log_execution(self, result: EvaluationResult, **tags: Any) -> None:
-        """Record one execution.
+    def log_execution(
+        self,
+        result: EvaluationResult,
+        *,
+        run_id: str | None = None,
+        case: str | None = None,
+        **tags: Any,
+    ) -> None:
+        """Record one execution's results.
 
-        Offline, this logs onto the open run. Real-time, it opens a short run of
-        its own so background evaluation cannot disturb an agent's run.
+        Three destinations, in priority order — the first that applies wins, so
+        evaluation never creates a rival run when one already exists:
+
+        1. ``run_id``: the execution's own run (where its trace and token usage
+           live). Used by real-time evaluation, so scores sit beside the trace.
+           Appending to a finished run is intentional: MLflow accepts it and the
+           UI then shows metrics and trace together.
+        2. The open offline run, with metrics prefixed by ``case`` so 16 cases do
+           not overwrite one another in the same run.
+        3. A short run of its own, when neither exists.
 
         Args:
             result: The engine's verdict for one execution.
-            tags: Extra tags (model, difficulty, dataset version, ...).
+            run_id: The execution's run, when the caller knows it.
+            case: Dataset case id, used as a metric prefix offline.
+            tags: Extra tags (scenario, dataset version, ...).
         """
         if not self.enabled:
             return
 
         context = result.context
         try:
-            if self.active:
-                client, run_id = self._client, self._run_id
-                terminate = False
+            if run_id:
+                client = self._new_client()
+                target_run, terminate, prefix = run_id, False, ""
+            elif self.active:
+                client, target_run, terminate = self._client, self._run_id, False
+                prefix = f"{case}." if case else ""
             else:
-                client, run_id = self._create_run(
+                client, target_run = self._create_run(
                     f"eval-{context.agent_name}-{context.execution_id or 'unknown'}",
                     {
                         "evaluation": context.mode.value,
@@ -156,37 +176,52 @@ class EvaluationTracker:
                         **{k: str(v) for k, v in tags.items()},
                     },
                 )
-                terminate = True
+                terminate, prefix = True, ""
 
-            if run_id is None:
+            if target_run is None:
                 return
 
             for metric in result.metrics:
-                prefix = f"{metric.metric_name}"
+                name = f"{prefix}{metric.metric_name}"
                 if metric.status == MetricStatus.SKIPPED:
-                    client.set_tag(run_id, f"skipped.{prefix}", metric.reason[:500])
+                    client.set_tag(target_run, f"skipped.{name}", metric.reason[:500])
                     continue
 
-                client.log_metric(run_id, f"{prefix}.score", float(metric.score))
-                client.log_metric(run_id, f"{prefix}.threshold", float(metric.threshold))
+                client.log_metric(target_run, f"{name}.score", float(metric.score))
+                client.log_metric(target_run, f"{name}.threshold", float(metric.threshold))
                 client.log_metric(
-                    run_id, f"{prefix}.passed", 1.0 if metric.passed else 0.0
+                    target_run, f"{name}.passed", 1.0 if metric.passed else 0.0
                 )
-                client.set_tag(run_id, f"{prefix}.status", metric.status.value)
+                client.set_tag(target_run, f"{name}.status", metric.status.value)
                 if self._log_reasons and metric.reason:
                     client.set_tag(
-                        run_id, f"{prefix}.reason", metric.reason[:MAX_REASON_CHARS]
+                        target_run, f"{name}.reason", metric.reason[:MAX_REASON_CHARS]
                     )
 
-            client.log_metric(run_id, "passed", float(result.passed))
-            client.log_metric(run_id, "total", float(result.total))
-            client.log_metric(run_id, "duration_ms", float(result.duration_ms))
+            client.log_metric(target_run, f"{prefix}passed", float(result.passed))
+            client.log_metric(target_run, f"{prefix}total", float(result.total))
+            client.log_metric(target_run, f"{prefix}duration_ms", float(result.duration_ms))
+
+            # The correlation ids are a tag on every run, so a run and its trace
+            # can always be traced back to one execution.
+            if context.execution_id:
+                client.set_tag(target_run, "execution_id", context.execution_id)
+            if context.session_id:
+                client.set_tag(target_run, "session_id", context.session_id)
+            client.set_tag(target_run, "agent_name", context.agent_name)
 
             if terminate:
-                client.set_terminated(run_id, "FINISHED")
+                client.set_terminated(target_run, "FINISHED")
 
         except Exception as exc:  # noqa: BLE001 - tracking is best-effort
             logger.warning("Failed to log execution results: %s", exc)
+
+    @staticmethod
+    def _new_client() -> Any:
+        """A fresh MlflowClient, so logging never depends on the active run."""
+        from mlflow.tracking import MlflowClient
+
+        return MlflowClient()
 
     def log_failures(self, failures: list[dict[str, Any]]) -> None:
         """Attach a failure list to the open run."""

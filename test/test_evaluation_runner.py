@@ -232,6 +232,51 @@ def test_results_carry_check_outcomes(config):
     assert result.fully_passed is True
 
 
+# ---------------------------------------------------------------------------
+# Per-case metrics: a case asks for the rules it expects
+# ---------------------------------------------------------------------------
+
+
+def test_a_case_can_request_a_metric_the_agent_does_not_run_by_default(config):
+    """Outcome rules (emergency, completion) are opted into per case.
+
+    They fail by construction on an ordinary mid-intake turn, so they are not in
+    the agent's per-turn set; the case that should exhibit one asks for it.
+    """
+    engine = _engine(("one_question_only",))
+    runner = _runner(config, engine=engine)
+
+    report = runner.run_all(_dataset("no_error"))
+
+    by_id = {case.case_id: case for case in report.cases}
+    requested = {check["name"] for check in by_id["C-1"].checks}
+    not_requested = {check["name"] for check in by_id["C-2"].checks}
+
+    assert "no_error" in requested, "C-1 asked for it"
+    assert "no_error" not in not_requested, "C-2 did not"
+
+
+def test_a_case_request_does_not_mutate_the_configured_selection(config):
+    engine = _engine(("one_question_only",))
+    runner = _runner(config, engine=engine)
+
+    runner.run_all(_dataset("no_error"))
+
+    assert engine.metric_names("intake") == ("one_question_only",)
+
+
+def test_a_requested_metric_that_is_not_registered_is_skipped(config):
+    """An unimplemented rule must be visible, never silently passed."""
+    report = _runner(config).run_all(_dataset("extract_multiple_details"))
+
+    result = next(case for case in report.cases if case.case_id == "C-1")
+
+    assert any(
+        skipped.startswith("extract_multiple_details:")
+        for skipped in result.skipped_checks
+    )
+
+
 def test_a_failing_check_is_reported_but_does_not_abort_the_run(config):
     tracker = _StubTracker()
     adapter = _StubAdapter(answers={"C-2": "Is this right? And your name?"})

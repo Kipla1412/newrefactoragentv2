@@ -25,8 +25,24 @@ class TrackerPort(Protocol):
         """Open a run for an offline evaluation."""
         ...
 
-    def log_execution(self, result: EvaluationResult, **tags: Any) -> None:
-        """Record one execution's metrics, statuses and rationale."""
+    def log_execution(
+        self,
+        result: EvaluationResult,
+        *,
+        run_id: str | None = None,
+        case: str | None = None,
+        **tags: Any,
+    ) -> None:
+        """Record one execution's metrics, statuses and rationale.
+
+        Args:
+            result: The engine's verdict for one execution.
+            run_id: The execution's own run, when known — implementations should
+                prefer it over creating a new run, so a trace and its scores stay
+                together.
+            case: Dataset case id, for namespacing metrics within a shared run.
+            tags: Extra context for the backend.
+        """
         ...
 
     def log_summary(

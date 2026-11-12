@@ -39,6 +39,23 @@ dependencies = [
 requires = ["setuptools"]
 build-backend = "setuptools.build_meta"
 
+[tool.pytest.ini_options]
+# Warnings are visible by default, so a new one from this codebase stands out.
+# The filters below silence *third-party* deprecations only, each pinned to the
+# library that emits it: a blanket "ignore::DeprecationWarning" would hide our own.
+filterwarnings = [
+    # deepeval still calls asyncio.iscoroutinefunction, which Python 3.14
+    # deprecated and 3.16 removes. Nothing we can fix from here.
+    "ignore:'asyncio\\.iscoroutinefunction' is deprecated:DeprecationWarning:deepeval.*",
+    # anyio's pytest plugin predates pytest 10's CallSpec rename.
+    "ignore:_pytest\\.python\\.CallSpec2 has been renamed to CallSpec:_pytest.warning_types.PytestRemovedIn10Warning",
+]
+
+# pytest-asyncio asks for this to be explicit. "function" is its own default, so
+# setting it changes no behaviour — it just removes the startup notice. This
+# suite drives async code with asyncio.run, so no asyncio_mode is needed.
+asyncio_default_fixture_loop_scope = "function"
+
 [tool.setuptools.packages.find]
 include = ["*"]
 

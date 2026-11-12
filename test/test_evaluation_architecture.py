@@ -304,10 +304,18 @@ class TestShippedConfiguration:
         assert config.evaluation.enabled is True
         assert config.evaluation.offline.enabled is True
 
-    def test_external_calls_are_off_in_the_shipped_config(self):
+    def test_external_calls_default_off_but_are_enabled_in_the_shipped_config(self):
+        """The shipped config opts in, so Answer Relevancy can actually run.
+
+        The *safe* default is still closed (absent config -> False, asserted in
+        ``TestSelectionFromConfig``); the shipped ``agents.yaml`` makes an
+        explicit operator decision to enable it.
+        """
         config = self._config()
 
-        assert MetricSelection.external_calls_allowed(config) is False
+        assert MetricSelection.external_calls_allowed(config) is True
+        assert MetricSelection.external_calls_allowed(SimpleNamespace()) is False
+        assert MetricSelection.external_calls_allowed(None) is False
 
     def test_intake_has_per_turn_deterministic_metrics(self):
         engine = build_engine(self._config())
@@ -316,28 +324,32 @@ class TestShippedConfiguration:
         assert "no_repeated_questions" in engine.metric_names("intake")
 
     def test_intake_default_metrics_are_per_turn_only(self):
-        """End-of-intake outcomes must not run on mid-intake turns.
+        """Outcome rules must not run on mid-intake turns.
 
         ``intake_completion`` fails every mid-intake reply by construction
-        ("no completion acknowledgement"), so running it on a normal turn marks
-        the agent wrong for not ending the conversation early. It belongs in
-        ``end_of_intake_metrics``, selected per case through the dataset's
-        ``critical_checks``.
+        ("no completion acknowledgement"), so it is absent from the per-turn set.
+        A dataset case requests the outcome rules it expects through its own
+        ``critical_checks``; ``OfflineRunner._engine_for`` adds them for that case.
         """
-        config = self._config()
-        engine = build_engine(config)
+        engine = build_engine(self._config())
 
         default_names = engine.metric_names("intake")
         for name in ("intake_completion", "emergency_compliance"):
             assert name not in default_names, (
-                f"'{name}' is an end-of-intake outcome and must not run per-turn"
+                f"'{name}' is an outcome rule and must not run on every turn"
             )
 
-        configured = config.evaluation.agents["intake"]
-        assert sorted(configured.end_of_intake_metrics) == [
-            "emergency_compliance",
-            "intake_completion",
-        ]
+    def test_the_dataset_requests_outcome_rules_per_case(self):
+        """The other half of the contract: cases ask for what they expect."""
+        from evaluation.datasets import load_dataset
+
+        dataset = load_dataset(agent="intake")
+        requested = {
+            name for case in dataset.test_cases for name in case.metric_names
+        }
+
+        assert "completes_intake" in requested, "a summary case should expect it"
+        assert "emergency_escalation" in requested, "an emergency case should"
 
     def test_intake_has_no_llm_metrics(self):
         """Answer Relevancy under-scores clarifying questions; it stays off."""
