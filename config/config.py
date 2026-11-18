@@ -1,5 +1,6 @@
 from __future__ import annotations
 from enum import Enum
+import json
 import os
 from pathlib import Path
 from typing import Any
@@ -12,9 +13,12 @@ from speechtospeech.speechtotext.sttengine import TranscriptionEngine
 from speechtospeech.texttospeech.ttsengine import TTSEngine
 from dotenv import load_dotenv
 from utils.errors import ConfigError
+from utils.logging_config import get_logger
 from config.schemas import ApplicationAgentConfig
 
 load_dotenv()
+
+logger = get_logger(__name__)
 
 
 def _opensearch_url_host(url: str) -> str:
@@ -204,11 +208,16 @@ class EvaluationLLMConfig(BaseModel):
         allow_external_calls: Whether an external judge may be called.
         model_uri: Judge model URI; ``None`` uses MLflow's own default.
         thresholds: Per-metric passing thresholds, keyed by registry name.
+        use_framework_credentials: Point the judge at the framework's own
+            ``API_KEY``/``BASE_URL``. MLflow's scorers read ``OPENAI_API_KEY``,
+            so without this a working agent and a failing judge can share one
+            deployment. Existing environment variables always win.
     """
 
     allow_external_calls: bool = False
     model_uri: str | None = None
     thresholds: dict[str, float] = Field(default_factory=dict)
+    use_framework_credentials: bool = False
 
 
 class EvaluationOfflineConfig(BaseModel):
@@ -434,8 +443,38 @@ class Config(BaseModel):
                 url=base_url,
                 enabled=True,
                 transport="streamable-http",
+                headers=self.fhir_mcp_headers,
             )
         }
+
+    @property
+    def fhir_mcp_headers(self) -> dict[str, str]:
+        """Headers to send to the FHIR MCP server.
+
+        The server usually needs its own credential, which is not the token that
+        authenticates a user to this API. Set ``FHIR_MCP_HEADERS`` to a JSON
+        object to supply it, for example::
+
+            FHIR_MCP_HEADERS={"Authorization": "Bearer <fhir-token>"}
+
+        A configured header wins over the request's token, so this API's IAM
+        token is never sent to a server that did not ask for it.
+        """
+        raw = os.environ.get("FHIR_MCP_HEADERS")
+        if not raw:
+            return {}
+
+        try:
+            parsed = json.loads(raw)
+        except json.JSONDecodeError as exc:
+            logger.warning("Ignoring FHIR_MCP_HEADERS: invalid JSON (%s)", exc)
+            return {}
+
+        if not isinstance(parsed, dict):
+            logger.warning("Ignoring FHIR_MCP_HEADERS: expected a JSON object")
+            return {}
+
+        return {str(k): str(v) for k, v in parsed.items()}
         
     @property
     def fhir_base_url(self):

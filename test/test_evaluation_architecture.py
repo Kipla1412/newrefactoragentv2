@@ -11,6 +11,7 @@ Also covers the configuration -> selection bridging (the Specification pattern).
 from __future__ import annotations
 
 import ast
+import os
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -215,7 +216,96 @@ class TestSelectionFromConfig:
         assert MetricSelection.judge_model_uri(config) == "openai:/gpt-4.1-mini"
 
 
-class TestCompositionRoot:
+class TestJudgeCredentials:
+    """The judge can be pointed at the deployment's single credential.
+
+    MLflow's scorers read ``OPENAI_API_KEY`` while the agents use
+    ``API_KEY``/``BASE_URL``. Without the bridge those are different keys — which
+    is how a working agent sits next to a judge failing with
+    ``insufficient_quota``.
+    """
+
+    @staticmethod
+    def _config(use_framework_credentials: bool = True):
+        from types import SimpleNamespace
+
+        return SimpleNamespace(
+            evaluation=SimpleNamespace(
+                enabled=True,
+                llm=SimpleNamespace(
+                    allow_external_calls=True,
+                    model_uri=None,
+                    use_framework_credentials=use_framework_credentials,
+                ),
+            )
+        )
+
+    @pytest.fixture(autouse=True)
+    def _clean_env(self, monkeypatch):
+        for name in (
+            "OPENAI_API_KEY",
+            "OPENAI_API_BASE",
+            "OPENAI_BASE_URL",
+            "API_KEY",
+            "BASE_URL",
+        ):
+            monkeypatch.delenv(name, raising=False)
+
+    def test_disabled_by_default(self):
+        from evaluation.composition import apply_framework_credentials
+
+        assert apply_framework_credentials(SimpleNamespace()) is False
+
+        config = self._config(use_framework_credentials=False)
+        assert apply_framework_credentials(config) is False
+
+    def test_the_framework_key_wins_when_enabled(self, monkeypatch):
+        from evaluation.composition import apply_framework_credentials
+
+        monkeypatch.setenv("API_KEY", "framework-key")
+        monkeypatch.setenv("OPENAI_API_KEY", "exhausted-judge-key")
+
+        assert apply_framework_credentials(self._config()) is True
+        assert os.environ["OPENAI_API_KEY"] == "framework-key"
+
+    def test_the_framework_base_url_is_copied_to_both_names(self, monkeypatch):
+        from evaluation.composition import apply_framework_credentials
+
+        monkeypatch.setenv("API_KEY", "k")
+        monkeypatch.setenv("BASE_URL", "https://gateway.example/v1")
+
+        apply_framework_credentials(self._config())
+
+        # LiteLLM reads the first, the OpenAI SDK the second.
+        assert os.environ["OPENAI_API_BASE"] == "https://gateway.example/v1"
+        assert os.environ["OPENAI_BASE_URL"] == "https://gateway.example/v1"
+
+    def test_it_is_idempotent(self, monkeypatch):
+        from evaluation.composition import apply_framework_credentials
+
+        monkeypatch.setenv("API_KEY", "k")
+        monkeypatch.setenv("BASE_URL", "https://gateway.example/v1")
+        config = self._config()
+
+        assert apply_framework_credentials(config) is True
+        assert apply_framework_credentials(config) is False
+
+    def test_nothing_happens_without_a_framework_key(self):
+        from evaluation.composition import apply_framework_credentials
+
+        assert apply_framework_credentials(self._config()) is False
+        assert "OPENAI_API_KEY" not in os.environ
+
+    def test_the_registry_applies_it(self, monkeypatch):
+        """Building the registry is enough — no separate setup call to remember."""
+        from evaluation.composition import build_registry
+
+        monkeypatch.setenv("API_KEY", "framework-key")
+        monkeypatch.setenv("OPENAI_API_KEY", "exhausted-judge-key")
+
+        build_registry(self._config())
+
+        assert os.environ["OPENAI_API_KEY"] == "framework-key"
     def test_build_registry_is_closed_by_default(self):
         registry = build_registry()
 

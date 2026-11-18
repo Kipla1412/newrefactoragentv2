@@ -236,3 +236,91 @@ def test_valid_dataset_builds_from_models():
     dataset = EvalDataset(test_cases=[EvalCase(**_case())])
 
     assert dataset.critical_checks() == {"one_question_only"}
+
+
+# ---------------------------------------------------------------------------
+# Per-agent datasets
+# ---------------------------------------------------------------------------
+
+
+class TestEhrDataset:
+    """The EHR dataset, and the name -> agent mapping that runs it."""
+
+    def test_the_dataset_loads(self):
+        dataset = load_dataset(agent="ehr")
+
+        assert dataset.agent == "ehr"
+        assert dataset.version
+        assert len(dataset.test_cases) >= 5
+
+    def test_cases_declare_the_tool_calls_they_expect(self):
+        """ToolCorrectness needs an expectation for every case, including "none"."""
+        dataset = load_dataset(agent="ehr")
+
+        for case in dataset.test_cases:
+            assert "expected_tool_calls" in case.model_fields_set, (
+                f"{case.id} must state its expected tool calls, even if empty"
+            )
+
+        with_tools = [c for c in dataset.test_cases if c.expected_tool_calls]
+        without_tools = [c for c in dataset.test_cases if not c.expected_tool_calls]
+        assert with_tools, "some cases should expect a retrieval"
+        assert without_tools, "some cases should expect no tool call at all"
+
+    def test_expected_tools_come_from_this_deployment(self):
+        """A tool name that does not exist would fail every run."""
+        from evaluation.datasets import load_dataset as load
+
+        dataset = load(agent="ehr")
+        known = set(dataset.metadata.get("tool_vocabulary", []))
+
+        assert known, "the vocabulary is recorded in the dataset metadata"
+        for case in dataset.test_cases:
+            for call in case.expected_tool_calls:
+                assert call["name"] in known, f"{case.id}: unknown tool {call['name']}"
+                assert call["name"].startswith("fhir__")
+
+    def test_every_case_is_complete_and_replayable(self):
+        dataset = load_dataset(agent="ehr")
+
+        for case in dataset.test_cases:
+            assert case.input.strip()
+            assert case.expected_output.strip()
+            assert case.scenario.strip()
+        assert dataset.not_replayable() == []
+
+    def test_it_exercises_a_multi_turn_case(self):
+        dataset = load_dataset(agent="ehr")
+
+        multi_turn = [case for case in dataset.test_cases if case.context]
+        assert multi_turn, "a follow-up case needs prior context to replay"
+        assert all(case.conversation for case in multi_turn)
+
+    def test_case_ids_are_unique_and_prefixed(self):
+        dataset = load_dataset(agent="ehr")
+
+        ids = [case.id for case in dataset.test_cases]
+        assert len(ids) == len(set(ids))
+        assert all(case_id.startswith("EHR_") for case_id in ids)
+
+    def test_the_agent_name_resolves_to_the_ehr_agent(self):
+        from agent.events import AgentType
+        from evaluation.adapters.agent_case_runner import resolve_agent_type
+
+        assert resolve_agent_type("ehr") == AgentType.EHR
+        assert resolve_agent_type("intake") == AgentType.INTAKE
+
+    def test_an_unknown_agent_name_is_rejected(self):
+        from evaluation.adapters.agent_case_runner import resolve_agent_type
+
+        with pytest.raises(ValueError, match="Unknown evaluation agent"):
+            resolve_agent_type("no_such_agent")
+
+    def test_the_case_runner_builds_the_agent_the_dataset_names(self, config):
+        from agent.events import AgentType
+        from evaluation.adapters.agent_case_runner import AgentCaseRunner
+
+        runner = AgentCaseRunner(config, agent_name="ehr")
+
+        assert runner.agent_name == "ehr"
+        assert runner._agent_type == AgentType.EHR

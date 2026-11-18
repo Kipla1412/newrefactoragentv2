@@ -156,15 +156,8 @@ class Agent:
 
         await self.session.hook_system.trigger_before_agent(message)
 
-        with agent_span(
-            name=self._evaluation_agent_name,
-            run_id=self._execution_run_id(),
-            execution_id=self.session.execution_id or "",
-            session_id=self.session.session_id,
-            agent_name=self._evaluation_agent_name,
-        ):
-            async for event in self._run_turn(message):
-                yield event
+        async for event in self._run_turn(message):
+            yield event
 
     def _execution_run_id(self) -> str | None:
         """This execution's MLflow run id, when tracking is on."""
@@ -221,23 +214,38 @@ class Agent:
         max_turns = self.config.max_turns
         started = time.perf_counter()
         final_response: str | None = None
+        self._last_trace_id = None
 
-        try:
-            async for event in self._turn_events(max_turns):
-                if event.type == AgentEventType.TEXT_COMPLETE:
-                    # Last one wins: a turn can emit several while iterating
-                    # through tool calls, and the final reply is the one to judge.
-                    final_response = event.data.get("content") or final_response
-                yield event
-        finally:
-            # Runs on every exit, including the early return when no tools are
-            # called and the max-turns path. A GeneratorExit (client disconnect)
-            # leaves final_response as None, which is not evaluated.
-            self._schedule_real_time_evaluation(
-                self._current_user_input(),
-                final_response,
-                (time.perf_counter() - started) * 1000,
-            )
+        # The root AGENT span lives here, not in run(): every custom agent
+        # overrides run(), so a root span there would leave their spans
+        # fragmented across several traces — and MLflow reads tool calls from the
+        # trace, which tool metrics then cannot see.
+        with agent_span(
+            name=self._evaluation_agent_name,
+            run_id=self._execution_run_id(),
+            execution_id=self.session.execution_id or "",
+            session_id=self.session.session_id,
+            agent_name=self._evaluation_agent_name,
+        ) as span:
+            self._last_trace_id = getattr(span, "trace_id", None)
+
+            try:
+                async for event in self._turn_events(max_turns):
+                    if event.type == AgentEventType.TEXT_COMPLETE:
+                        # Last one wins: a turn can emit several while iterating
+                        # through tool calls, and the final reply is the one to judge.
+                        final_response = event.data.get("content") or final_response
+                    yield event
+            finally:
+                # Runs on every exit, including the early return when no tools are
+                # called and the max-turns path. A GeneratorExit (client
+                # disconnect) leaves final_response as None, which is not
+                # evaluated.
+                self._schedule_real_time_evaluation(
+                    self._current_user_input(),
+                    final_response,
+                    (time.perf_counter() - started) * 1000,
+                )
 
     def _current_user_input(self) -> str:
         """The most recent user message, i.e. the input being evaluated."""
@@ -574,6 +582,11 @@ class Agent:
         run_id = self._execution_run_id()
         if run_id:
             metadata["mlflow_run_id"] = run_id
+        # The trace id lets a tool metric read the tool calls MLflow recorded on
+        # this execution's spans.
+        trace_id = getattr(self, "_last_trace_id", None)
+        if trace_id:
+            metadata["mlflow_trace_id"] = trace_id
 
         return EvaluationContext(
             agent_name=self._evaluation_agent_name,

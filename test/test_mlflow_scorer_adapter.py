@@ -88,16 +88,53 @@ class TestAvailability:
         assert isinstance(mlflow_scorers_available(), bool)
 
     def test_registry_names_are_snake_case_and_map_to_mlflow_names(self):
-        assert set(MLFLOW_SCORERS) == {
+        assert {
             "answer_relevancy",
             "faithfulness",
             "task_completion",
             "tool_correctness",
             "toxicity",
             "json_correctness",
-        }
+            "plan_quality",
+            "plan_adherence",
+            "step_efficiency",
+            "argument_correctness",
+        } <= set(MLFLOW_SCORERS)
+
         assert MLFLOW_SCORERS["answer_relevancy"].scorer_name == "AnswerRelevancy"
         assert MLFLOW_SCORERS["json_correctness"].scorer_name == "JsonCorrectness"
+        assert MLFLOW_SCORERS["plan_quality"].scorer_name == "PlanQuality"
+        assert MLFLOW_SCORERS["step_efficiency"].scorer_name == "StepEfficiency"
+
+    def test_agentic_quality_metrics_require_a_trace(self):
+        """MLflow's implementation reads the trace, not just the reply.
+
+        DeepEval declares only ``input``/``actual_output`` for these, but without
+        a trace MLflow cannot see the plan or the steps: plan_quality scored a
+        vacuous 1.00 ("no plans to evaluate") and step_efficiency 0.00. A metric
+        that reports a meaningless pass is worse than one that skips.
+        """
+        for name in ("plan_quality", "plan_adherence", "step_efficiency"):
+            spec = MLFLOW_SCORERS[name]
+            assert spec.requires_trace is True, name
+
+    def test_task_completion_needs_an_expected_output(self):
+        assert MLFLOW_SCORERS["task_completion"].requires_context == (
+            "expected_output",
+        )
+
+    def test_tool_metrics_are_marked_trace_only(self):
+        """MLflow reads ``tools_called`` from trace spans, which we do not pass."""
+        for name in ("tool_correctness", "argument_correctness"):
+            assert MLFLOW_SCORERS[name].requires_trace is True, name
+
+    def test_every_registered_scorer_can_be_constructed(self):
+        """Names in a dict prove nothing: each scorer must build in this version."""
+        for name, spec in MLFLOW_SCORERS.items():
+            if spec.requires_config:
+                continue  # these need metric kwargs; the guard skips them first
+            scorer = build_scorer(spec.scorer_name, threshold=0.5)
+            assert scorer is not None, name
 
     def test_requirements_are_declared_honestly(self):
         assert MLFLOW_SCORERS["faithfulness"].requires_trace is True

@@ -31,6 +31,66 @@ from utils.logging_config import get_logger
 logger = get_logger(__name__)
 
 
+def apply_framework_credentials(config: Any = None) -> bool:
+    """Point MLflow's judge at the framework's own ``API_KEY``/``BASE_URL``.
+
+    MLflow's scorers build their own LLM and read ``OPENAI_API_KEY`` (or another
+    provider's key), while this framework authenticates with ``API_KEY`` /
+    ``BASE_URL``. Without a bridge the two use different credentials, which is
+    how a working agent can sit in the same deployment as a judge that fails with
+    ``insufficient_quota``.
+
+    Opt-in via ``evaluation.llm.use_framework_credentials``. When enabled the
+    framework's values **win** — that is the point of the flag: one credential
+    for the whole deployment. A provider-native key is only kept when the flag is
+    off.
+
+    Returns:
+        True when at least one variable was set.
+    """
+    llm = getattr(getattr(config, "evaluation", None), "llm", None)
+    if llm is None or not getattr(llm, "use_framework_credentials", False):
+        return False
+
+    import os
+
+    api_key = os.environ.get("API_KEY")
+    base_url = os.environ.get("BASE_URL")
+    changed = False
+    replaced = False
+
+    if api_key:
+        if os.environ.get("OPENAI_API_KEY") != api_key:
+            replaced = bool(os.environ.get("OPENAI_API_KEY"))
+            os.environ["OPENAI_API_KEY"] = api_key
+            changed = True
+
+    if base_url:
+        # LiteLLM and the OpenAI SDK read different names for the same thing;
+        # set both so either route reaches the configured endpoint.
+        for variable in ("OPENAI_API_BASE", "OPENAI_BASE_URL"):
+            if os.environ.get(variable) != base_url:
+                os.environ[variable] = base_url
+                changed = True
+
+    if changed:
+        if replaced:
+            logger.warning(
+                "Evaluation judge credentials replaced by the framework API_KEY "
+                "(evaluation.llm.use_framework_credentials is on)"
+            )
+        else:
+            logger.info("Evaluation judge now uses the framework credentials")
+    return changed
+
+    if changed:
+        logger.info(
+            "Evaluation judge now uses the framework credentials",
+            extra={"fields": {"base_url_set": bool(base_url)}},
+        )
+    return changed
+
+
 def build_registry(
     config: Any = None,
     *,
@@ -59,6 +119,11 @@ def build_registry(
         )
     if model_uri is None and config is not None:
         model_uri = MetricSelection.judge_model_uri(config)
+
+    # Before any scorer exists: a scorer built later resolves its credentials
+    # when constructed, so the bridge has to be in place first.
+    if allow_external_calls:
+        apply_framework_credentials(config)
 
     registry = MetricRegistry()
     register_all(

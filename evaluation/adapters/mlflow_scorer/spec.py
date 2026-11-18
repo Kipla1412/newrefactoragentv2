@@ -54,16 +54,39 @@ class ScorerSpec:
 #:
 #: Names are snake_case to match the framework's metric convention; the mapping
 #: to MLflow's CamelCase names lives here and nowhere else.
+#:
+#: Requirements are taken from DeepEval's own ``_required_params``, not guessed:
+#: the agentic quality metrics need only ``input`` + ``actual_output``, so they
+#: run against a plain reply. Anything needing ``tools_called`` is marked
+#: ``requires_trace`` because MLflow sources tool calls from trace spans, which
+#: this framework does not feed the scorer.
 MLFLOW_SCORERS: dict[str, ScorerSpec] = {
+    # RAG / general
     "answer_relevancy": ScorerSpec("AnswerRelevancy"),
     "faithfulness": ScorerSpec("Faithfulness", requires_trace=True),
-    "task_completion": ScorerSpec(
-        "TaskCompletion", requires_context=("expected_output",)
-    ),
-    "tool_correctness": ScorerSpec("ToolCorrectness", requires_trace=True),
     "toxicity": ScorerSpec("Toxicity"),
     "json_correctness": ScorerSpec(
         "JsonCorrectness", requires_config=("expected_schema",)
+    ),
+    # Agentic quality. DeepEval declares only input/actual_output for these, but
+    # MLflow's implementation is a *trace analyst*: without a trace it cannot see
+    # the plan or the steps. Observed behaviour without one — plan_quality
+    # returned a vacuous 1.00 ("no plans to evaluate") and step_efficiency 0.00.
+    # Both are meaningless, so they require a trace.
+    "task_completion": ScorerSpec(
+        "TaskCompletion", requires_context=("expected_output",)
+    ),
+    "plan_quality": ScorerSpec("PlanQuality", requires_trace=True),
+    "plan_adherence": ScorerSpec("PlanAdherence", requires_trace=True),
+    "step_efficiency": ScorerSpec("StepEfficiency", requires_trace=True),
+    # Tool behaviour — needs the tool calls MLflow reads from a trace
+    "argument_correctness": ScorerSpec("ArgumentCorrectness", requires_trace=True),
+    # ToolCorrectness also needs the calls the run *should* have made, which come
+    # from the case's expected_tool_calls.
+    "tool_correctness": ScorerSpec(
+        "ToolCorrectness",
+        requires_trace=True,
+        requires_context=("expected_tool_calls",),
     ),
 }
 

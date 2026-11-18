@@ -187,10 +187,18 @@ def main(argv: list[str] | None = None) -> int:
         print(f"Dataset error: {exc}", file=sys.stderr)
         return 2
 
+    config = load_config(cwd=PROJECT_ROOT)
+    # Metrics come from configuration; a case may add more through its own
+    # critical_checks. Counting only the dataset's would read "0 metrics" for an
+    # agent whose metrics are configured in agents.yaml.
+    configured = MetricSelection.from_config(config).for_agent(args.agent)
+
     if args.list or args.case == "":
         for case in dataset.test_cases:
             print(f"{case.id:12s} {case.scenario}")
-        print(f"\n{len(dataset.test_cases)} cases · {len(dataset.critical_checks())} metrics")
+        print(f"\n{len(dataset.test_cases)} cases · {len(configured)} configured metrics")
+        if configured:
+            print(f"metrics: {', '.join(configured)}")
         versions = datasets.versions(args.agent)
         if versions:
             print(f"versions: {', '.join(versions)}")
@@ -201,8 +209,6 @@ def main(argv: list[str] | None = None) -> int:
     if not args.all and not args.case:
         _parser().print_help()
         return 2
-
-    config = load_config(cwd=PROJECT_ROOT)
 
     # The privacy gate is an explicit opt-in on the command line: the reply text
     # is patient data. `--no-llm-metrics` is accepted so existing invocations keep

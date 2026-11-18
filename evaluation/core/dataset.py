@@ -65,6 +65,9 @@ class EvalCase(BaseModel):
         expected_output: Natural-language description of a correct reply.
         expected_behaviour: Prose behaviours the reply should exhibit.
         critical_checks: Metric names to run (registry names).
+        expected_tool_calls: Tool calls a correct run should make, for tool
+            metrics. Each entry is a mapping with at least ``name``; optional
+            keys are ``description``, ``input_parameters`` and ``output``.
         retrieval_context: Passages the reply should be grounded in, for
             retrieval-backed agents.
         tags: Free-form labels for filtering and reporting.
@@ -78,6 +81,7 @@ class EvalCase(BaseModel):
     expected_output: str
     expected_behaviour: list[str] = Field(default_factory=list)
     critical_checks: list[str] = Field(default_factory=list)
+    expected_tool_calls: list[dict[str, Any]] = Field(default_factory=list)
     retrieval_context: list[str] = Field(default_factory=list)
     tags: list[str] = Field(default_factory=list)
     metadata: dict[str, Any] = Field(default_factory=dict)

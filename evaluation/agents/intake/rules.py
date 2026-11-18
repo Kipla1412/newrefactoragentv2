@@ -161,7 +161,7 @@ def _check_not_complete_yet(case: EvaluationContext, obs: EvaluationContext) -> 
     if hit:
         return False, f"declared completion early ('{hit}')"
     return (
-        not obs.ended,
+        not obs.ended, 
         "declared completion early (status_end)" if obs.ended else "no early completion",
     )
 

@@ -25,6 +25,43 @@ from utils.logging_config import get_logger
 
 logger = get_logger(__name__)
 
+#: Agent name -> the agent to build for its dataset.
+#:
+#: Dataset runs are addressed by name (``--agent ehr``), so the name has to
+#: resolve to the right agent class. Without this an EHR dataset would be fed to
+#: the intake agent and every case would score the wrong thing.
+AGENT_TYPES: dict[str, AgentType] = {
+    "intake": AgentType.INTAKE,
+    "ehr": AgentType.EHR,
+    "demographics": AgentType.DEMOGRAPHICS,
+    "pdf_chat": AgentType.PDF_CHAT,
+    "soap": AgentType.SOAP,
+    "assessment": AgentType.ASSESSMENT,
+    "clinical_extraction": AgentType.CLINICAL_EXTRACTION,
+    "consult": AgentType.CONSULT,
+    "doc": AgentType.DOC,
+    "medical": AgentType.MEDICAL,
+    "document_retrieval": AgentType.DOCUMENT_RETRIEVAL,
+    "diarize": AgentType.DIARIZE,
+    "voice_intake": AgentType.VOICE_INTAKE,
+    "voice_consult": AgentType.VOICE_CONSULT,
+}
+
+
+def resolve_agent_type(agent_name: str) -> AgentType:
+    """Map a dataset's agent name to the agent to run.
+
+    Raises:
+        ValueError: If the name has no registered agent.
+    """
+    try:
+        return AGENT_TYPES[agent_name]
+    except KeyError:
+        known = ", ".join(sorted(AGENT_TYPES))
+        raise ValueError(
+            f"Unknown evaluation agent '{agent_name}'. Known: {known}"
+        ) from None
+
 
 class AgentCaseRunner:
     """Execute evaluation cases against one agent.
@@ -34,8 +71,10 @@ class AgentCaseRunner:
     Args:
         config: Runtime configuration, as the API would use it.
         agent_name: Name recorded on produced contexts; must match the key used
-            for metric configuration.
-        agent_type: Which agent to build.
+            for metric configuration, and selects the agent to run unless
+            ``agent_type`` overrides it.
+        agent_type: Which agent to build. Defaults to the agent named by
+            ``agent_name``.
         session_factory: Optional factory returning a ``Session`` for one case.
             Defaults to a fresh ``Session(config)`` per case, so cases cannot leak
             history into each other. Tests inject a factory with a stubbed client.
@@ -47,13 +86,13 @@ class AgentCaseRunner:
         config: Config,
         *,
         agent_name: str = "intake",
-        agent_type: AgentType = AgentType.INTAKE,
+        agent_type: AgentType | None = None,
         session_factory: Callable[[Config], Session] | None = None,
         skill: str | None = None,
     ) -> None:
         self.agent_name = agent_name
         self._config = config
-        self._agent_type = agent_type
+        self._agent_type = agent_type or resolve_agent_type(agent_name)
         self._session_factory = session_factory or Session
         self._skill = skill
 
@@ -169,6 +208,9 @@ class AgentCaseRunner:
                 "history_turns": history_turns,
                 "event_count": event_count,
                 "expected_output": case.expected_output,
+                # A list, not a tuple: MLflow's expectation mapper only converts
+                # expected tool calls when the value is a list.
+                "expected_tool_calls": list(case.expected_tool_calls),
                 "task": case.task,
                 "scenario": case.scenario,
                 "tags": tuple(case.tags),

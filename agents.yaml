@@ -98,11 +98,12 @@ evaluation:
     asynchronous: true
     max_concurrency: 2
     timeout: 60
-    # Semantic metrics (answer_relevancy, …) on live traffic are OFF: they call
-    # an external judge on every turn — cost, latency, and patient text leaving
-    # the process in real time. The same metrics still run for offline
-    # evaluation, where a human reviews the report before anything depends on it.
-    allow_llm_metrics: false
+    # Semantic metrics on live traffic are ON, so plan_quality, step_efficiency
+    # and friends appear per turn. They call an external judge on every request:
+    # cost and latency per turn, and reply text leaves the process live.
+    # task_completion and tool_correctness still skip live — they need ground
+    # truth (expected output / expected tool calls) that a live request has none of.
+    allow_llm_metrics: true
 
   offline:
     enabled: true
@@ -131,10 +132,27 @@ evaluation:
       llm_metrics:
         - faithfulness
 
+    ehr:
+      # No deterministic rule library yet, so the agentic quality metrics are the
+      # useful signal: did it finish the retrieval task, was the plan sound, did
+      # it take unnecessary steps. They read only input + output.
+      # tool_correctness compares the tool calls in the execution's trace against
+      # the case's expected_tool_calls.
+      metrics: []
+      llm_metrics:
+        - task_completion
+        - plan_quality
+        - step_efficiency
+        - tool_correctness
+
   llm:
     allow_external_calls: true
+    # Use the deployment's single credential for the judge as well. MLflow's
+    # scorers read OPENAI_API_KEY, while the agents use API_KEY/BASE_URL; with
+    # this on, the agent key is copied across so one working key serves both.
+    # Turn it off to give the judge its own provider-native key instead.
+    use_framework_credentials: true
     # Judge model URI. null -> MLFLOW_GENAI_JUDGE_DEFAULT_MODEL, else
-    # openai:/gpt-4.1-mini. Requires provider-native credentials such as
-    # OPENAI_API_KEY; the framework's API_KEY/BASE_URL are not used by MLflow.
+    # openai:/gpt-4.1-mini.
     model_uri: null
 

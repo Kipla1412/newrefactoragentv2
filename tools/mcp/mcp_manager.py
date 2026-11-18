@@ -8,6 +8,35 @@ from utils.logging_config import get_logger
 
 logger = get_logger(__name__)
 
+#: Header that carries a request's identity.
+AUTH_HEADER = "Authorization"
+
+
+def _merge_headers(
+    configured: dict[str, str] | None,
+    auth_token: str | None,
+) -> dict[str, str]:
+    """Combine a server's configured headers with the request's token.
+
+    A configured ``Authorization`` wins. An MCP server almost always expects its
+    own credential, which is not the token that authenticates a user to this API:
+    forwarding the IAM token to such a server is what produces a 401 on every
+    tool call.
+
+    Args:
+        configured: Headers from the server's configuration.
+        auth_token: Bearer token from the incoming request, when there is one.
+
+    Returns:
+        A new dict; the configured mapping is not mutated.
+    """
+    headers = dict(configured or {})
+
+    if auth_token and AUTH_HEADER not in headers:
+        headers[AUTH_HEADER] = f"Bearer {auth_token}"
+
+    return headers
+
 
 class MCPManager:
     def __init__(self, config: Config):
@@ -37,11 +66,7 @@ class MCPManager:
                 if not server_config.enabled:
                     continue
 
-                headers = dict(server_config.headers or {})
-
-                # Inject dynamic Bearer token
-                if auth_token:
-                    headers["Authorization"] = f"Bearer {auth_token}"
+                headers = _merge_headers(server_config.headers, auth_token)
 
                 runtime_config = server_config.model_copy(
                     update={"headers": headers}

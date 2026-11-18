@@ -34,6 +34,9 @@ from utils.logging_config import get_logger
 
 logger = get_logger(__name__)
 
+#: Sentinel distinguishing "absent" from "present but empty".
+_MISSING = object()
+
 
 def build_scorer(
     scorer_name: str,
@@ -183,15 +186,56 @@ class MLflowDeepEvalMetric:
         }
         if expectations:
             kwargs["expectations"] = expectations
+
+        # MLflow reads ``tools_called`` from trace spans, so a tool metric needs
+        # the execution's trace. Passing it also lets MLflow resolve inputs and
+        # outputs from the trace where they were not supplied.
+        trace = self._resolve_trace(context)
+        if trace is not None:
+            kwargs["trace"] = trace
+
         return scorer(**kwargs)
+
+    @staticmethod
+    def _resolve_trace(context: EvaluationContext) -> Any | None:
+        """Fetch this execution's trace, or None when there is not one.
+
+        Traces are exported asynchronously, so a trace created moments ago may
+        not be readable yet; ``flush_trace_async_logging`` waits for pending
+        writes. A missing or unreadable trace is not an error — the metric then
+        reports itself as skipped.
+        """
+        trace_id = context.metadata.get("mlflow_trace_id")
+        if not trace_id:
+            return None
+
+        try:
+            import mlflow
+
+            mlflow.flush_trace_async_logging()
+            trace = mlflow.get_trace(trace_id)
+        except Exception as exc:  # noqa: BLE001 - a trace is best-effort
+            logger.debug("Trace %s could not be loaded: %s", trace_id, exc)
+            return None
+
+        if trace is None:
+            logger.debug("Trace %s is not available yet", trace_id)
+        return trace
 
     @staticmethod
     def _expectations(context: EvaluationContext) -> dict[str, Any]:
         """Build MLflow's ``expectations`` dict from the context metadata."""
         expectations: dict[str, Any] = {}
+
         expected_output = context.metadata.get("expected_output")
         if expected_output:
             expectations["expected_output"] = expected_output
+
+        # MLflow only converts these when the value is a list.
+        expected_tools = context.metadata.get("expected_tool_calls")
+        if expected_tools:
+            expectations["expected_tool_calls"] = list(expected_tools)
+
         return expectations
 
     def _missing_requirements(self, context: EvaluationContext) -> list[str]:
@@ -205,10 +249,11 @@ class MLflowDeepEvalMetric:
         missing: list[str] = []
 
         if self.spec.requires_trace:
-            missing.append(
-                "requires an MLflow trace (MLflow reads this input from trace "
-                "spans, and this framework does not emit per-turn traces)"
-            )
+            if not context.metadata.get("mlflow_trace_id"):
+                missing.append(
+                    "requires an MLflow trace (none was recorded for this "
+                    "execution)"
+                )
 
         if self.spec.requires_config:
             absent = [
@@ -220,7 +265,9 @@ class MLflowDeepEvalMetric:
                 missing.append(f"requires configuration: {', '.join(absent)}")
 
         for key in self.spec.requires_context:
-            if not _context_value(context, key):
+            # Presence, not truthiness: an empty list of expected tool calls is a
+            # real expectation ("no tools should run"), not a missing value.
+            if context.metadata.get(key, _MISSING) is _MISSING:
                 missing.append(f"requires {key}")
 
         return missing
